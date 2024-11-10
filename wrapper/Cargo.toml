@@ -1,0 +1,24 @@
+[package]
+name = "wrapper"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# cdylib builds a a %.wasm file with `cargo build --release --target wasm32-unknown-unknown`
+crate-type = ["cdylib"]
+name = "wrapper"
+path = "wrapper.rs"
+
+[dependencies]
+bitcoin = { version = "0.32", features = ["base64"] }
+miniscript = { version = "12.2.0", default-features = false, features = ["no-std"] }
+serde_json = "1.0.132"
+
+[profile.release]
+# Below settings dramatically reduce wasm output size
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[features]
+default = ["bitcoin/secp-lowmemory"]
