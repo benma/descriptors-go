@@ -3,6 +3,7 @@ package descriptors
 import (
 	"context"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -134,6 +135,61 @@ func (m *wasmModule) descriptorString(descPtr uint64) string {
 		log.Panicln(err)
 	}
 	return fromRustString(result[0])
+}
+
+type miniscriptProperties struct {
+	Types   string
+	OpCodes uint64 `json:"op_codes"`
+	Error   string
+}
+
+func (m *wasmModule) miniscriptParse(script string) (*miniscriptProperties,
+	error) {
+
+	strSize := uint64(len(script))
+	strPtr, strDrop := rustString(script)
+	defer strDrop()
+	parseFn := m.mod.ExportedFunction("miniscript_parse")
+	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	if err != nil {
+		return nil, err
+	}
+	var jsonResult miniscriptProperties
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != "" {
+		return nil, errors.New(jsonResult.Error)
+	}
+	return &jsonResult, nil
+}
+
+func (m *wasmModule) miniscriptCompile(script string) ([]byte, error) {
+	strSize := uint64(len(script))
+	strPtr, strDrop := rustString(script)
+	defer strDrop()
+	parseFn := m.mod.ExportedFunction("miniscript_compile")
+	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	if err != nil {
+		return nil, err
+	}
+	var jsonResult struct {
+		ScriptHex string `json:"script_hex"`
+		Error     string
+	}
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != "" {
+		return nil, errors.New(jsonResult.Error)
+	}
+
+	resultBytes, err := hex.DecodeString(jsonResult.ScriptHex)
+	if err != nil {
+		return nil, err
+	}
+
+	return resultBytes, nil
 }
 
 var wasmMod wasmModule
