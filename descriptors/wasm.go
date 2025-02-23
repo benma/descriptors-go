@@ -14,11 +14,17 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
+// Network represents the different Bitcoin networks.
 type Network int
 
 const (
+	// NetworkMainnet represents the main Bitcoin network.
 	NetworkMainnet Network = 0
+
+	// NetworkTestnet represents the Bitcoin testnet network.
 	NetworkTestnet Network = 1
+
+	// NetworkRegtest represents the Bitcoin regtest network.
 	NetworkRegtest Network = 2
 )
 
@@ -50,7 +56,9 @@ func (m *wasmModule) deallocate(ptr, size uint64) {
 	}
 }
 
-func (m *wasmModule) descriptorParse(descriptor string) (uint32, func(), error) {
+func (m *wasmModule) descriptorParse(
+	descriptor string) (uint32, func(), error) {
+
 	strSize := uint64(len(descriptor))
 	strPtr, strDrop := rustString(descriptor)
 	defer strDrop()
@@ -121,10 +129,11 @@ func (m *wasmModule) descriptorAddressAt(
 
 var wasmMod wasmModule
 
-func logString(ctx context.Context, m api.Module, offset, byteCount uint32) {
+func logString(_ context.Context, m api.Module, offset, byteCount uint32) {
 	buf, ok := m.Memory().Read(offset, byteCount)
 	if !ok {
-		log.Panicf("Memory.Read(%d, %d) out of range", offset, byteCount)
+		log.Panicf("Memory.Read(%d, %d) out of range", offset,
+			byteCount)
 	}
 	fmt.Println(string(buf))
 }
@@ -135,7 +144,9 @@ func getWasmMod() *wasmModule {
 		wasmRuntime := wazero.NewRuntime(ctx)
 		wasi_snapshot_preview1.MustInstantiate(ctx, wasmRuntime)
 		_, err := wasmRuntime.NewHostModuleBuilder("env").
-			NewFunctionBuilder().WithFunc(logString).Export("log").
+			NewFunctionBuilder().
+			WithFunc(logString).
+			Export("log").
 			Instantiate(ctx)
 		if err != nil {
 			log.Panicln(err)
