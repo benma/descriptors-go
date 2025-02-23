@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - 'master'
+  pull_request:
+    branches:
+      - '*'
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Go needs absolute directories, using the $HOME variable doesn't work here.
+  GOPATH: /home/runner/work/go
+
+jobs:
+  rust-compilation-check:
+    name: Rust compilation check
+    runs-on: ubuntu-latest
+    steps:
+      - name: build wrapper
+        run: make build-wrapper
+
+      - name: assert wrapper unchanged
+        run: make check-wrapper-compiled
+
+  unit-test:
+    name: unit-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+
+      - name: Run unit test
+        run: make unit-test
