@@ -36,6 +36,12 @@ func (d *Descriptor) MultipathLen() int {
 	return int(d.mod.descriptorMultipathLen(d.ptr))
 }
 
+// String returns the complete string representation of the descriptor,
+// including the checksum.
+func (d *Descriptor) String() string {
+	return d.mod.descriptorString(d.ptr)
+}
+
 // AddressAt derives and returns the address at the given multipath and
 // derivation index.
 func (d *Descriptor) AddressAt(network Network, multipathIndex uint32,

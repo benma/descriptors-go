@@ -62,7 +62,8 @@ pub unsafe extern "C" fn deallocate(ptr: u32, size: u32) {
 }
 
 pub struct Descriptor {
-    descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
+    descriptor: miniscript::Descriptor<miniscript::DescriptorPublicKey>,
+    single_descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
 }
 
 #[no_mangle]
@@ -73,7 +74,8 @@ pub unsafe extern "C" fn descriptor_parse(ptr: u32, len: u32) -> u64 {
             miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(&descriptor_string)
                 .map_err(|e| e.to_string())?;
         let desc = Box::new(Descriptor {
-            descriptors: descriptor.into_single_descriptors().unwrap(),
+            single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
+            descriptor: descriptor,
         });
 
         Ok(Box::into_raw(desc) as u32)
@@ -96,7 +98,13 @@ pub unsafe extern "C" fn descriptor_drop(ptr: *mut Descriptor) {
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_multipath_len(ptr: *const Descriptor) -> u64 {
     let desc = &*ptr;
-    desc.descriptors.len() as _
+    desc.single_descriptors.len() as _
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> u64 {
+    let desc = &*ptr;
+    string_to_ptr(desc.descriptor.to_string())
 }
 
 #[no_mangle]
@@ -109,7 +117,7 @@ pub unsafe extern "C" fn descriptor_address_at(
     let result = || -> Result<String, String> {
         let desc = &*ptr;
         let descriptor = desc
-            .descriptors
+            .single_descriptors
             .get(multipath_index as usize)
             .ok_or("multipath index out of bounds".to_string())?;
         let network = match network {

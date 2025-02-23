@@ -127,6 +127,15 @@ func (m *wasmModule) descriptorAddressAt(
 	return jsonResult.Address, nil
 }
 
+func (m *wasmModule) descriptorString(descPtr uint64) string {
+	fn := m.mod.ExportedFunction("descriptor_to_str")
+	result, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return fromRustString(result[0])
+}
+
 var wasmMod wasmModule
 
 func logString(_ context.Context, m api.Module, offset, byteCount uint32) {

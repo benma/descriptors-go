@@ -8,10 +8,12 @@ import (
 
 func TestDescriptorSingle(t *testing.T) {
 	descriptorStr := "wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB/*)"
+	checksum := "#97qc8vss"
 	descriptor, err := NewDescriptor(descriptorStr)
 	require.NoError(t, err)
 	defer descriptor.Close()
 	require.Equal(t, 1, descriptor.MultipathLen())
+	require.Equal(t, descriptorStr+checksum, descriptor.String())
 
 	addr, err := descriptor.AddressAt(NetworkMainnet, 0, 0)
 	require.NoError(t, err)
@@ -23,11 +25,13 @@ func TestDescriptorSingle(t *testing.T) {
 
 func TestDescriptorMultipath(t *testing.T) {
 	descriptorStr := "wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB/<0;1>/*)"
+	checksum := "#w3nj0e22"
 	descriptor, err := NewDescriptor(descriptorStr)
 	require.NoError(t, err)
 	defer descriptor.Close()
 
 	require.Equal(t, 2, descriptor.MultipathLen())
+	require.Equal(t, descriptorStr+checksum, descriptor.String())
 
 	// First receive address.
 	addr, err := descriptor.AddressAt(NetworkMainnet, 0, 0)
@@ -52,9 +56,12 @@ func TestDescriptorMultipath(t *testing.T) {
 
 func TestNetworksWpkh(t *testing.T) {
 	descriptorStr := "wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB/<0;1>/*)"
+	checksum := "#w3nj0e22"
 	descriptor, err := NewDescriptor(descriptorStr)
 	require.NoError(t, err)
 	defer descriptor.Close()
+
+	require.Equal(t, descriptorStr+checksum, descriptor.String())
 
 	addr, err := descriptor.AddressAt(NetworkMainnet, 0, 0)
 	require.NoError(t, err)
@@ -71,9 +78,12 @@ func TestNetworksWpkh(t *testing.T) {
 
 func TestNetworksTr(t *testing.T) {
 	descriptorStr := "tr(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB/<0;1>/*)"
+	checksum := "#rq20sev9"
 	descriptor, err := NewDescriptor(descriptorStr)
 	require.NoError(t, err)
 	defer descriptor.Close()
+
+	require.Equal(t, descriptorStr+checksum, descriptor.String())
 
 	addr, err := descriptor.AddressAt(NetworkMainnet, 0, 0)
 	require.NoError(t, err)
@@ -92,15 +102,16 @@ func TestInvalidChecksum(t *testing.T) {
 	_, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqha")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Invalid checksum")
-
 }
 
 func TestTapminiscript(t *testing.T) {
-	descriptor, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr")
+	descriptorStr := "tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr"
+	descriptor, err := NewDescriptor(descriptorStr)
 	require.NoError(t, err)
 	defer descriptor.Close()
 
 	require.Equal(t, 2, descriptor.MultipathLen())
+	require.Equal(t, descriptorStr, descriptor.String())
 
 	// First receive address.
 	addr, err := descriptor.AddressAt(NetworkMainnet, 0, 0)
