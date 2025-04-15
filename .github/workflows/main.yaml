@@ -21,6 +21,15 @@ jobs:
     name: Rust compilation check
     runs-on: ubuntu-latest
     steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: Setup rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-wasip1
+
       - name: build wrapper
         run: make build-wrapper
 
