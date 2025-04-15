@@ -2,9 +2,12 @@ extern crate alloc;
 extern crate core;
 
 use alloc::vec::Vec;
+use core::fmt;
 use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
+
+use miniscript::miniscript::types;
 
 /// Returns a string from WebAssembly compatible numeric types representing
 /// its pointer and length.
@@ -62,7 +65,8 @@ pub unsafe extern "C" fn deallocate(ptr: u32, size: u32) {
 }
 
 pub struct Descriptor {
-    descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
+    descriptor: miniscript::Descriptor<miniscript::DescriptorPublicKey>,
+    single_descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
 }
 
 #[no_mangle]
@@ -73,7 +77,8 @@ pub unsafe extern "C" fn descriptor_parse(ptr: u32, len: u32) -> u64 {
             miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(&descriptor_string)
                 .map_err(|e| e.to_string())?;
         let desc = Box::new(Descriptor {
-            descriptors: descriptor.into_single_descriptors().unwrap(),
+            single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
+            descriptor: descriptor,
         });
 
         Ok(Box::into_raw(desc) as u32)
@@ -96,7 +101,13 @@ pub unsafe extern "C" fn descriptor_drop(ptr: *mut Descriptor) {
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_multipath_len(ptr: *const Descriptor) -> u64 {
     let desc = &*ptr;
-    desc.descriptors.len() as _
+    desc.single_descriptors.len() as _
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> u64 {
+    let desc = &*ptr;
+    string_to_ptr(desc.descriptor.to_string())
 }
 
 #[no_mangle]
@@ -109,7 +120,7 @@ pub unsafe extern "C" fn descriptor_address_at(
     let result = || -> Result<String, String> {
         let desc = &*ptr;
         let descriptor = desc
-            .descriptors
+            .single_descriptors
             .get(multipath_index as usize)
             .ok_or("multipath index out of bounds".to_string())?;
         let network = match network {
@@ -129,6 +140,113 @@ pub unsafe extern "C" fn descriptor_address_at(
     match result() {
         Ok(address) => json_to_ptr(serde_json::json!({
             "address": address,
+        })),
+        Err(err) => json_to_ptr(serde_json::json!({
+            "error": err,
+        })),
+    }
+}
+
+struct TestType(types::Type);
+
+impl fmt::Display for TestType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self.0.corr.base {
+            types::Base::B => "B",
+            types::Base::K => "K",
+            types::Base::V => "V",
+            types::Base::W => "W",
+        })?;
+        f.write_str(match self.0.corr.input {
+            types::Input::Zero => "z",
+            types::Input::One => "o",
+            types::Input::OneNonZero => "on",
+            types::Input::Any => "",
+            types::Input::AnyNonZero => "n",
+        })?;
+        if self.0.corr.dissatisfiable {
+            fmt::Write::write_char(f, 'd')?;
+        }
+        if self.0.corr.unit {
+            fmt::Write::write_char(f, 'u')?;
+        }
+        f.write_str(match self.0.mall.dissat {
+            types::Dissat::None => "f",
+            types::Dissat::Unique => "e",
+            types::Dissat::Unknown => "",
+        })?;
+        if self.0.mall.safe {
+            fmt::Write::write_char(f, 's')?;
+        }
+        if self.0.mall.non_malleable {
+            fmt::Write::write_char(f, 'm')?;
+        }
+        Ok(())
+    }
+}
+
+pub struct MiniscriptProperties {
+    types: String,
+    op_codes: usize,
+}
+
+/// Parses a miniscript string pointer and returns its properties (parsed types
+/// and number of opcodes) as a pointer to a JSON string. The input string must
+/// be represented as a numeric pointer that points to a WebAssembly compatible
+/// string in memory and the string's length. The returned pointer points to a
+/// WebAssembly compatible string that contains the result in JSON format.
+/// This function is only used for unit tests.
+#[no_mangle]
+pub unsafe extern "C" fn miniscript_parse(ptr: u32, len: u32) -> u64 {
+    let result = || -> Result<MiniscriptProperties, String> {
+        let miniscript_string = ptr_to_string(ptr, len);
+        let ms =
+            miniscript::Miniscript::<String, miniscript::Segwitv0>::from_str_insane(&miniscript_string)
+                .map_err(|e| e.to_string())?;
+                
+        let ms_types = format!("{}", TestType(ms.ty));
+        let mut ms_types = ms_types.chars().collect::<Vec<_>>();
+        ms_types.sort_by(|a, b| b.cmp(a));
+
+        Ok(MiniscriptProperties{
+            types: ms_types.into_iter().collect(),
+            op_codes: ms.ext.ops.count,
+        })
+    };
+    match result() {
+        Ok(props) => json_to_ptr(serde_json::json!({
+            "types": props.types,
+            "op_codes": props.op_codes,
+        })),
+        Err(err) => json_to_ptr(serde_json::json!({
+            "error": err,
+        })),
+    }
+}
+
+/// Compiles a miniscript expression from a string pointer and returns its
+/// compiled script as a pointer to a JSON string. The input string must
+/// be represented as a numeric pointer that points to a WebAssembly compatible
+/// string in memory and the string's length. The returned pointer points to a
+/// WebAssembly compatible string that contains the result in JSON format.
+/// This function is only used for unit tests.
+#[no_mangle]
+pub unsafe extern "C" fn miniscript_compile(ptr: u32, len: u32) -> u64 {
+    let result = || -> Result<String, String> {
+        let miniscript_string = ptr_to_string(ptr, len);
+        let ms =
+            miniscript::Miniscript::<bitcoin::PublicKey, miniscript::Segwitv0>::from_str_insane(&miniscript_string)
+                .map_err(|e| e.to_string())?;
+                
+        let ms_types = format!("{}", TestType(ms.ty));
+        let mut ms_types = ms_types.chars().collect::<Vec<_>>();
+        ms_types.sort_by(|a, b| b.cmp(a));
+
+        Ok(ms.encode().clone().to_hex_string())
+    };
+    match result() {
+        Ok(script) => json_to_ptr(serde_json::json!({
+            "script_hex": script,
         })),
         Err(err) => json_to_ptr(serde_json::json!({
             "error": err,

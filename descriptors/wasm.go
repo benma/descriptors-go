@@ -3,6 +3,7 @@ package descriptors
 import (
 	"context"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,11 +15,17 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
+// Network represents the different Bitcoin networks.
 type Network int
 
 const (
+	// NetworkMainnet represents the main Bitcoin network.
 	NetworkMainnet Network = 0
+
+	// NetworkTestnet represents the Bitcoin testnet network.
 	NetworkTestnet Network = 1
+
+	// NetworkRegtest represents the Bitcoin regtest network.
 	NetworkRegtest Network = 2
 )
 
@@ -50,7 +57,9 @@ func (m *wasmModule) deallocate(ptr, size uint64) {
 	}
 }
 
-func (m *wasmModule) descriptorParse(descriptor string) (uint32, func(), error) {
+func (m *wasmModule) descriptorParse(
+	descriptor string) (uint32, func(), error) {
+
 	strSize := uint64(len(descriptor))
 	strPtr, strDrop := rustString(descriptor)
 	defer strDrop()
@@ -119,12 +128,77 @@ func (m *wasmModule) descriptorAddressAt(
 	return jsonResult.Address, nil
 }
 
+func (m *wasmModule) descriptorString(descPtr uint64) string {
+	fn := m.mod.ExportedFunction("descriptor_to_str")
+	result, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return fromRustString(result[0])
+}
+
+type miniscriptProperties struct {
+	Types   string
+	OpCodes uint64 `json:"op_codes"`
+	Error   string
+}
+
+func (m *wasmModule) miniscriptParse(script string) (*miniscriptProperties,
+	error) {
+
+	strSize := uint64(len(script))
+	strPtr, strDrop := rustString(script)
+	defer strDrop()
+	parseFn := m.mod.ExportedFunction("miniscript_parse")
+	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	if err != nil {
+		return nil, err
+	}
+	var jsonResult miniscriptProperties
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != "" {
+		return nil, errors.New(jsonResult.Error)
+	}
+	return &jsonResult, nil
+}
+
+func (m *wasmModule) miniscriptCompile(script string) ([]byte, error) {
+	strSize := uint64(len(script))
+	strPtr, strDrop := rustString(script)
+	defer strDrop()
+	parseFn := m.mod.ExportedFunction("miniscript_compile")
+	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	if err != nil {
+		return nil, err
+	}
+	var jsonResult struct {
+		ScriptHex string `json:"script_hex"`
+		Error     string
+	}
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != "" {
+		return nil, errors.New(jsonResult.Error)
+	}
+
+	resultBytes, err := hex.DecodeString(jsonResult.ScriptHex)
+	if err != nil {
+		return nil, err
+	}
+
+	return resultBytes, nil
+}
+
 var wasmMod wasmModule
 
-func logString(ctx context.Context, m api.Module, offset, byteCount uint32) {
+func logString(_ context.Context, m api.Module, offset, byteCount uint32) {
 	buf, ok := m.Memory().Read(offset, byteCount)
 	if !ok {
-		log.Panicf("Memory.Read(%d, %d) out of range", offset, byteCount)
+		log.Panicf("Memory.Read(%d, %d) out of range", offset,
+			byteCount)
 	}
 	fmt.Println(string(buf))
 }
@@ -135,7 +209,9 @@ func getWasmMod() *wasmModule {
 		wasmRuntime := wazero.NewRuntime(ctx)
 		wasi_snapshot_preview1.MustInstantiate(ctx, wasmRuntime)
 		_, err := wasmRuntime.NewHostModuleBuilder("env").
-			NewFunctionBuilder().WithFunc(logString).Export("log").
+			NewFunctionBuilder().
+			WithFunc(logString).
+			Export("log").
 			Instantiate(ctx)
 		if err != nil {
 			log.Panicln(err)
