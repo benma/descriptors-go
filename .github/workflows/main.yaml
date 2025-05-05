@@ -19,10 +19,10 @@ env:
 jobs:
   rust-compilation-check:
     name: Rust compilation check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: build wrapper
-        run: make build-wrapper
+      - name: git checkout
+        uses: actions/checkout@v4
 
       - name: assert wrapper unchanged
         run: make check-wrapper-compiled
