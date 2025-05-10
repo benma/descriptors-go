@@ -303,3 +303,18 @@ func TestVectors(t *testing.T) {
 		})
 	}
 }
+
+func TestMaxWeightToSatisfy(t *testing.T) {
+	descriptor, err := NewDescriptor("wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB/*)")
+	require.NoError(t, err)
+	weight, err := descriptor.MaxWeightToSatisfy()
+	require.NoError(t, err)
+	require.Equal(t, uint64(107), weight)
+
+	// Invalid, can't satisfy.
+	descriptor, err = NewDescriptor("wsh(0)")
+	require.NoError(t, err)
+	_, err = descriptor.MaxWeightToSatisfy()
+	require.Error(t, err)
+
+}

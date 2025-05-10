@@ -105,6 +105,19 @@ pub unsafe extern "C" fn descriptor_multipath_len(ptr: *const Descriptor) -> u64
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn descriptor_max_weight_to_satisfy(ptr: *const Descriptor) -> u64 {
+    let desc = &*ptr;
+    match desc.descriptor.max_weight_to_satisfy() {
+        Ok(weight) => json_to_ptr(serde_json::json!({
+            "weight": weight.to_wu(),
+        })),
+        Err(err) => json_to_ptr(serde_json::json!({
+            "error": err.to_string(),
+        })),
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> u64 {
     let desc = &*ptr;
     string_to_ptr(desc.descriptor.to_string())
@@ -200,15 +213,16 @@ pub struct MiniscriptProperties {
 pub unsafe extern "C" fn miniscript_parse(ptr: u32, len: u32) -> u64 {
     let result = || -> Result<MiniscriptProperties, String> {
         let miniscript_string = ptr_to_string(ptr, len);
-        let ms =
-            miniscript::Miniscript::<String, miniscript::Segwitv0>::from_str_insane(&miniscript_string)
-                .map_err(|e| e.to_string())?;
-                
+        let ms = miniscript::Miniscript::<String, miniscript::Segwitv0>::from_str_insane(
+            &miniscript_string,
+        )
+        .map_err(|e| e.to_string())?;
+
         let ms_types = format!("{}", TestType(ms.ty));
         let mut ms_types = ms_types.chars().collect::<Vec<_>>();
         ms_types.sort_by(|a, b| b.cmp(a));
 
-        Ok(MiniscriptProperties{
+        Ok(MiniscriptProperties {
             types: ms_types.into_iter().collect(),
             op_codes: ms.ext.ops.count,
         })
@@ -235,9 +249,11 @@ pub unsafe extern "C" fn miniscript_compile(ptr: u32, len: u32) -> u64 {
     let result = || -> Result<String, String> {
         let miniscript_string = ptr_to_string(ptr, len);
         let ms =
-            miniscript::Miniscript::<bitcoin::PublicKey, miniscript::Segwitv0>::from_str_insane(&miniscript_string)
-                .map_err(|e| e.to_string())?;
-                
+            miniscript::Miniscript::<bitcoin::PublicKey, miniscript::Segwitv0>::from_str_insane(
+                &miniscript_string,
+            )
+            .map_err(|e| e.to_string())?;
+
         let ms_types = format!("{}", TestType(ms.ty));
         let mut ms_types = ms_types.chars().collect::<Vec<_>>();
         ms_types.sort_by(|a, b| b.cmp(a));
