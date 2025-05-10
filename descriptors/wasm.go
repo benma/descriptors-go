@@ -91,6 +91,26 @@ func (m *wasmModule) descriptorMultipathLen(descPtr uint64) uint64 {
 	return results[0]
 }
 
+func (m *wasmModule) descriptorMaxWeightToSatisfy(descPtr uint64) (uint64, error) {
+	fn := m.mod.ExportedFunction("descriptor_max_weight_to_satisfy")
+	results, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	var jsonResult struct {
+		Weight uint64
+		Error  *string
+	}
+	if err := jsonUnmarshal(results[0], &jsonResult); err != nil {
+		return 0, err
+	}
+	if jsonResult.Error != nil {
+		return 0, errors.New(*jsonResult.Error)
+	}
+	return jsonResult.Weight, nil
+
+}
+
 func (m *wasmModule) descriptorDrop(descPtr uint64) {
 	descriptorDropFn := m.mod.ExportedFunction("descriptor_drop")
 	_, err := descriptorDropFn.Call(context.Background(), descPtr)

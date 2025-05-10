@@ -31,15 +31,22 @@ func (d *Descriptor) Close() {
 	d.close()
 }
 
+// String returns the complete string representation of the descriptor,
+// including the checksum.
+func (d *Descriptor) String() string {
+	return d.mod.descriptorString(d.ptr)
+}
+
 // MultipathLen returns the number of multipath elements in the descriptor.
 func (d *Descriptor) MultipathLen() int {
 	return int(d.mod.descriptorMultipathLen(d.ptr))
 }
 
-// String returns the complete string representation of the descriptor,
-// including the checksum.
-func (d *Descriptor) String() string {
-	return d.mod.descriptorString(d.ptr)
+// MaxWeightToSatisfy returns the largest possible weight of the input witness needed to satisfy this
+// descriptor.
+// See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.max_weight_to_satisfy.
+func (d *Descriptor) MaxWeightToSatisfy() (uint64, error) {
+	return d.mod.descriptorMaxWeightToSatisfy(d.ptr)
 }
 
 // AddressAt derives and returns the address at the given multipath and
