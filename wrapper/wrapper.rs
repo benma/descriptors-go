@@ -12,9 +12,9 @@ use miniscript::miniscript::types;
 /// Returns a string from WebAssembly compatible numeric types representing
 /// its pointer and length.
 unsafe fn ptr_to_string(ptr: u32, len: u32) -> String {
-    let slice = slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-    let utf8 = std::str::from_utf8_unchecked_mut(slice);
-    return String::from(utf8);
+    let slice = slice::from_raw_parts(ptr as *const u8, len as usize);
+    let utf8 = std::str::from_utf8_unchecked(slice);
+    String::from(utf8)
 }
 
 fn string_to_ptr(s: String) -> u64 {
@@ -69,20 +69,81 @@ pub struct Descriptor {
     single_descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
 }
 
+// Each function should return u64, serde_json::Value or String, as these can be passed over to
+// WASM using u64, json_to_ptr and string_to_ptr.
+impl Descriptor {
+    fn multipath_len(&self) -> u64 {
+        self.single_descriptors.len() as _
+    }
+
+    fn max_weight_to_satisfy(&self) -> serde_json::Value {
+        match self.descriptor.max_weight_to_satisfy() {
+            Ok(weight) => serde_json::json!({
+                "weight": weight.to_wu(),
+            }),
+            Err(err) => serde_json::json!({
+                "error": err.to_string(),
+            }),
+        }
+    }
+
+    fn to_str(&self) -> String {
+        self.descriptor.to_string()
+    }
+
+    fn address_at(
+        &self,
+        network: u32,
+        multipath_index: u32,
+        derivation_index: u32,
+    ) -> serde_json::Value {
+        let result = || -> Result<String, String> {
+            let descriptor = self
+                .single_descriptors
+                .get(multipath_index as usize)
+                .ok_or("multipath index out of bounds".to_string())?;
+            let network = match network {
+                0 => miniscript::bitcoin::Network::Bitcoin,
+                1 => miniscript::bitcoin::Network::Testnet,
+                2 => miniscript::bitcoin::Network::Regtest,
+                _ => return Err("unknown network".into()),
+            };
+
+            let addr = descriptor
+                .at_derivation_index(derivation_index)
+                .map_err(|e| e.to_string())?
+                .address(network)
+                .map_err(|e| e.to_string())?;
+            Ok(addr.to_string())
+        };
+        match result() {
+            Ok(address) => serde_json::json!({
+                "address": address,
+            }),
+            Err(err) => serde_json::json!({
+                "error": err,
+            }),
+        }
+    }
+}
+
+fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
+    let descriptor =
+        miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(descriptor)
+            .map_err(|e| e.to_string())?;
+    Ok(Box::new(Descriptor {
+        single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
+        descriptor,
+    }))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_parse(ptr: u32, len: u32) -> u64 {
     let result = || -> Result<u32, String> {
         let descriptor_string = ptr_to_string(ptr, len);
-        let descriptor =
-            miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(&descriptor_string)
-                .map_err(|e| e.to_string())?;
-        let desc = Box::new(Descriptor {
-            single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
-            descriptor: descriptor,
-        });
-
-        Ok(Box::into_raw(desc) as u32)
+        Ok(Box::into_raw(_descriptor_parse(&descriptor_string)?) as u32)
     };
+
     match result() {
         Ok(ptr) => json_to_ptr(serde_json::json!({
             "ptr": ptr,
@@ -100,27 +161,17 @@ pub unsafe extern "C" fn descriptor_drop(ptr: *mut Descriptor) {
 
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_multipath_len(ptr: *const Descriptor) -> u64 {
-    let desc = &*ptr;
-    desc.single_descriptors.len() as _
+    (*ptr).multipath_len()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_max_weight_to_satisfy(ptr: *const Descriptor) -> u64 {
-    let desc = &*ptr;
-    match desc.descriptor.max_weight_to_satisfy() {
-        Ok(weight) => json_to_ptr(serde_json::json!({
-            "weight": weight.to_wu(),
-        })),
-        Err(err) => json_to_ptr(serde_json::json!({
-            "error": err.to_string(),
-        })),
-    }
+    json_to_ptr((*ptr).max_weight_to_satisfy())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> u64 {
-    let desc = &*ptr;
-    string_to_ptr(desc.descriptor.to_string())
+    string_to_ptr((*ptr).to_str())
 }
 
 #[no_mangle]
@@ -130,34 +181,7 @@ pub unsafe extern "C" fn descriptor_address_at(
     multipath_index: u32,
     derivation_index: u32,
 ) -> u64 {
-    let result = || -> Result<String, String> {
-        let desc = &*ptr;
-        let descriptor = desc
-            .single_descriptors
-            .get(multipath_index as usize)
-            .ok_or("multipath index out of bounds".to_string())?;
-        let network = match network {
-            0 => miniscript::bitcoin::Network::Bitcoin,
-            1 => miniscript::bitcoin::Network::Testnet,
-            2 => miniscript::bitcoin::Network::Regtest,
-            _ => return Err("unknown network".into()),
-        };
-
-        let addr = descriptor
-            .at_derivation_index(derivation_index)
-            .map_err(|e| e.to_string())?
-            .address(network)
-            .map_err(|e| e.to_string())?;
-        Ok(addr.to_string())
-    };
-    match result() {
-        Ok(address) => json_to_ptr(serde_json::json!({
-            "address": address,
-        })),
-        Err(err) => json_to_ptr(serde_json::json!({
-            "error": err,
-        })),
-    }
+    json_to_ptr((*ptr).address_at(network, multipath_index, derivation_index))
 }
 
 struct TestType(types::Type);
@@ -267,5 +291,56 @@ pub unsafe extern "C" fn miniscript_compile(ptr: u32, len: u32) -> u64 {
         Err(err) => json_to_ptr(serde_json::json!({
             "error": err,
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_various() {
+        let desc_str = "tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr";
+        let desc = _descriptor_parse(desc_str).unwrap();
+
+        assert_eq!(desc.multipath_len(), 2);
+        assert_eq!(
+            desc.address_at(0, 0, 0),
+            serde_json::json!({
+                "address": "bc1pfujezshxnw0jw2m9fn6hz0xr3ljjpjd30gtpqyymgxqquk8rr95qk986dz",
+            })
+        );
+        assert_eq!(
+            desc.address_at(1, 0, 0),
+            serde_json::json!({
+                "address": "tb1pfujezshxnw0jw2m9fn6hz0xr3ljjpjd30gtpqyymgxqquk8rr95qpd34hd",
+            })
+        );
+
+        assert_eq!(
+            desc.address_at(1, 1, 0),
+            serde_json::json!({
+                "address": "tb1ptd9ngyt09kxtt8mkf832vhxdrn0xhccwp9jv6mz6vv4wqfc8dxjqgzjqnu",
+            })
+        );
+        assert_eq!(
+            desc.address_at(1, 0, 1),
+            serde_json::json!({
+                "address": "tb1pjg74433u7fxtcv72tutjntpvetuwfh79yuf4zptc5a62d5qjes4ss893lw",
+            })
+        );
+        assert_eq!(
+            desc.address_at(10, 0, 0),
+            serde_json::json!({
+                "error": "unknown network",
+            })
+        );
+        assert_eq!(
+            desc.max_weight_to_satisfy(),
+            serde_json::json!({
+                "weight": 140,
+            })
+        );
     }
 }
