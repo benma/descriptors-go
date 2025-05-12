@@ -26,9 +26,21 @@ jobs:
 
       - name: assert wrapper unchanged
         run: make check-wrapper-compiled
-
-  unit-test:
-    name: unit-test
+  rust-checks:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: |
+          cd wrapper
+          cargo fmt --check
+          cargo test
+          cargo clippy -- -A clippy::missing_safety_doc
+  go-unit-test:
+    name: Go unit tests
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
