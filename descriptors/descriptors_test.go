@@ -318,3 +318,71 @@ func TestMaxWeightToSatisfy(t *testing.T) {
 	require.Error(t, err)
 
 }
+
+func TestLift(t *testing.T) {
+	descriptor, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr")
+	require.NoError(t, err)
+	policy, err := descriptor.Lift()
+	require.NoError(t, err)
+	threshold_1 := uint(1)
+	threshold_2 := uint(2)
+	key1 := "[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*"
+	key2 := "[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*"
+	lockTime := uint32(65535)
+	require.Equal(t,
+		&SemanticPolicy{
+			Type:      "thresh",
+			Threshold: &threshold_1,
+			Policies: []*SemanticPolicy{
+				{
+					Type: "key",
+					Key:  &key1,
+				},
+				{
+					Type:      "thresh",
+					Threshold: &threshold_2,
+					Policies: []*SemanticPolicy{
+						{
+							Type: "key",
+							Key:  &key2,
+						},
+						{
+							Type:     "older",
+							LockTime: &lockTime,
+						},
+					},
+				},
+			},
+		},
+		policy)
+	jsonPolicy, err := json.Marshal(policy)
+
+	require.NoError(t, err)
+	require.JSONEq(t,
+		`{
+           "type": "thresh",
+           "threshold": 1,
+           "policies": [
+             {
+               "type": "key",
+               "key": "[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*"
+             },
+             {
+               "type": "thresh",
+               "threshold": 2,
+               "policies": [
+                 {
+                   "type": "key",
+                   "key": "[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*"
+                 },
+                 {
+                   "type": "older",
+                   "lockTime": 65535
+                 }
+               ]
+             }
+           ]
+        }`,
+		string(jsonPolicy),
+	)
+}

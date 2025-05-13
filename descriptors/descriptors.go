@@ -58,3 +58,10 @@ func (d *Descriptor) AddressAt(network Network, multipathIndex uint32,
 		d.ptr, network, multipathIndex, derivationIndex,
 	)
 }
+
+// Lift converts this descriptor into an abstract policy.
+//
+// See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.lift.
+func (d *Descriptor) Lift() (*SemanticPolicy, error) {
+	return d.mod.descriptorLift(d.ptr)
+}
