@@ -407,3 +407,25 @@ func TestKeys(t *testing.T) {
 		require.Equal(t, test.expected, descriptor.Keys())
 	}
 }
+
+func TestDescType(t *testing.T) {
+	type Test struct {
+		desc     string
+		expected DescType
+	}
+	tests := []Test{
+		{
+			desc:     "tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr",
+			expected: DescTypeTr,
+		},
+		{
+			desc:     "wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB)",
+			expected: DescTypeWpkh,
+		},
+	}
+	for _, test := range tests {
+		descriptor, err := NewDescriptor(test.desc)
+		require.NoError(t, err)
+		require.Equal(t, test.expected, descriptor.DescType())
+	}
+}
