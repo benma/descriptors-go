@@ -10,6 +10,7 @@ use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
 
+use miniscript::descriptor::DescriptorType;
 use miniscript::miniscript::types;
 use miniscript::policy::Liftable;
 
@@ -170,6 +171,23 @@ impl Descriptor {
 
         serde_json::json!(keys)
     }
+
+    fn desc_type(&self) -> String {
+        let typ = match self.descriptor.desc_type() {
+            DescriptorType::Bare => "Bare",
+            DescriptorType::Sh => "Sh",
+            DescriptorType::Pkh => "Pkh",
+            DescriptorType::Wpkh => "Wpkh",
+            DescriptorType::Wsh => "Wsh",
+            DescriptorType::ShWsh => "ShWsh",
+            DescriptorType::ShWpkh => "ShWpkh",
+            DescriptorType::ShSortedMulti => "ShSortedMulti",
+            DescriptorType::WshSortedMulti => "WshSortedMulti",
+            DescriptorType::ShWshSortedMulti => "ShWshSortedMulti",
+            DescriptorType::Tr => "Tr",
+        };
+        typ.into()
+    }
 }
 
 fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
@@ -227,6 +245,11 @@ pub unsafe extern "C" fn descriptor_lift(ptr: *const Descriptor) -> u64 {
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_keys(ptr: *const Descriptor) -> u64 {
     json_to_ptr((*ptr).keys())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_desc_type(ptr: *const Descriptor) -> u64 {
+    string_to_ptr((*ptr).desc_type())
 }
 
 #[no_mangle]
@@ -397,6 +420,7 @@ mod tests {
                 "weight": 140,
             })
         );
+        assert_eq!(desc.desc_type(), "Tr".to_string());
     }
 
     #[test]

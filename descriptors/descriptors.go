@@ -71,3 +71,40 @@ func (d *Descriptor) Lift() (*SemanticPolicy, error) {
 func (d *Descriptor) Keys() []string {
 	return d.mod.descriptorKeys(d.ptr)
 }
+
+// DecsType is the descriptor type.
+//
+// See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.DescriptorType.html.
+type DescType string
+
+const (
+	// Bare descriptor (Contains the native P2pk)
+	DescTypeBare DescType = "Bare"
+	// Pure Sh Descriptor. Does not contain nested Wsh/Wpkh
+	DescTypeSh DescType = "Sh"
+	// Pkh Descriptor
+	DescTypePkh DescType = "Pkh"
+	// Wpkh Descriptor
+	DescTypeWpkh DescType = "Wpkh"
+	// Wsh
+	DescTypeWsh DescType = "Wsh"
+	// Sh Wrapped Wsh
+	DescTypeShWsh DescType = "ShWsh"
+	// Sh wrapped Wpkh
+	DescTypeShWpkh DescType = "ShWpkh"
+	// Sh Sorted Multi
+	DescTypeShSortedMulti DescType = "ShSortedMulti"
+	// Wsh Sorted Multi
+	DescTypeWshSortedMulti DescType = "WshSortedMulti"
+	// Sh Wsh Sorted Multi
+	DescTypeShWshSortedMulti DescType = "ShWshSortedMulti"
+	// Tr Descriptor
+	DescTypeTr DescType = "Tr"
+)
+
+// DescType returns the descriptor type.
+//
+// See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.desc_type
+func (d *Descriptor) DescType() DescType {
+	return DescType(d.mod.descriptorDescType(d.ptr))
+}

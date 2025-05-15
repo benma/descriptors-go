@@ -180,6 +180,15 @@ func (m *wasmModule) descriptorKeys(descPtr uint64) []string {
 	return jsonResult
 }
 
+func (m *wasmModule) descriptorDescType(descPtr uint64) string {
+	fn := m.mod.ExportedFunction("descriptor_desc_type")
+	results, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return fromRustString(results[0])
+}
+
 func (m *wasmModule) descriptorString(descPtr uint64) string {
 	fn := m.mod.ExportedFunction("descriptor_to_str")
 	result, err := fn.Call(context.Background(), descPtr)
