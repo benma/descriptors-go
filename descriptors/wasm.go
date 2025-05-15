@@ -165,7 +165,19 @@ func (m *wasmModule) descriptorLift(descPtr uint64) (*SemanticPolicy, error) {
 		return nil, errors.New(*jsonResult.Error)
 	}
 	return jsonResult.Policy, nil
+}
 
+func (m *wasmModule) descriptorKeys(descPtr uint64) []string {
+	fn := m.mod.ExportedFunction("descriptor_keys")
+	results, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	var jsonResult []string
+	if err := jsonUnmarshal(results[0], &jsonResult); err != nil {
+		log.Panicln(err)
+	}
+	return jsonResult
 }
 
 func (m *wasmModule) descriptorString(descPtr uint64) string {
