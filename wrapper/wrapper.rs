@@ -1,13 +1,17 @@
+mod lift;
+
 extern crate alloc;
 extern crate core;
 
 use alloc::vec::Vec;
 use core::fmt;
+use miniscript::ForEachKey;
 use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
 
 use miniscript::miniscript::types;
+use miniscript::policy::Liftable;
 
 /// Returns a string from WebAssembly compatible numeric types representing
 /// its pointer and length.
@@ -125,6 +129,47 @@ impl Descriptor {
             }),
         }
     }
+
+    fn lift(&self) -> serde_json::Value {
+        let result = || -> Result<serde_json::Value, String> {
+            let policy = self.descriptor.lift().map_err(|err| err.to_string())?;
+            serde_json::to_value(lift::PolicyJson::from(&policy)).map_err(|err| err.to_string())
+        };
+        match result() {
+            Ok(policy) => serde_json::json!({
+                "policy": policy,
+            }),
+            Err(err) => serde_json::json!({
+                "error": err,
+            }),
+        }
+    }
+
+    fn keys(&self) -> serde_json::Value {
+        let keys: Vec<String> = match &self.descriptor {
+            miniscript::Descriptor::Bare(_)
+            | miniscript::Descriptor::Pkh(_)
+            | miniscript::Descriptor::Wpkh(_)
+            | miniscript::Descriptor::Sh(_)
+            | miniscript::Descriptor::Wsh(_) => {
+                let mut keys: Vec<String> = Vec::new();
+                self.descriptor.for_each_key(|key| {
+                    keys.push(key.to_string());
+                    true
+                });
+                keys
+            }
+            // Handle separately because ForEachKey iterates the Taproot tree before the internal
+            // key, but we want to return the keys in-order from left to right.
+            // See https://github.com/rust-bitcoin/rust-miniscript/issues/821
+            miniscript::Descriptor::Tr(tr) => core::iter::once(tr.internal_key().clone())
+                .chain(tr.iter_scripts().flat_map(|(_, ms)| ms.iter_pk()))
+                .map(|key| key.to_string())
+                .collect(),
+        };
+
+        serde_json::json!(keys)
+    }
 }
 
 fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
@@ -172,6 +217,16 @@ pub unsafe extern "C" fn descriptor_max_weight_to_satisfy(ptr: *const Descriptor
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> u64 {
     string_to_ptr((*ptr).to_str())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_lift(ptr: *const Descriptor) -> u64 {
+    json_to_ptr((*ptr).lift())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_keys(ptr: *const Descriptor) -> u64 {
+    json_to_ptr((*ptr).keys())
 }
 
 #[no_mangle]
@@ -342,5 +397,68 @@ mod tests {
                 "weight": 140,
             })
         );
+    }
+
+    #[test]
+    fn test_lift() {
+        let desc_str = "tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr";
+        let desc = _descriptor_parse(desc_str).unwrap();
+        // println!(serde_json::to_string_pretty(&desc.lift()).unwrap());
+        assert_eq!(
+            desc.lift(),
+            serde_json::json!({
+              "policy": {
+                "type": "thresh",
+                "threshold": 1,
+                "policies": [
+                  {
+                    "type": "key",
+                    "key": "[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*"
+                  },
+                  {
+                    "type": "thresh",
+                    "threshold": 2,
+                    "policies": [
+                      {
+                        "type": "key",
+                        "key": "[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*"
+                      },
+                      {
+                        "type": "older",
+                        "lockTime": 65535
+                      }
+                    ]
+                  }
+                ]
+              }
+            }),
+        );
+    }
+
+    #[test]
+    fn test_keys() {
+        struct Test {
+            desc: &'static str,
+            expected: &'static [&'static str],
+        }
+        let tests = &[
+            Test {
+                desc: "tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr",
+                expected: &[
+                    "[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*",
+                    "[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*",
+                ],
+            },
+            Test {
+                desc: "wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB)",
+                expected: &[
+                    "xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB",
+                ],
+            },
+        ];
+        for test in tests {
+            let desc = _descriptor_parse(test.desc).unwrap();
+            assert_eq!(desc.keys(), serde_json::json!(test.expected));
+        }
     }
 }

@@ -148,6 +148,38 @@ func (m *wasmModule) descriptorAddressAt(
 	return jsonResult.Address, nil
 }
 
+func (m *wasmModule) descriptorLift(descPtr uint64) (*SemanticPolicy, error) {
+	fn := m.mod.ExportedFunction("descriptor_lift")
+	results, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	var jsonResult struct {
+		Policy *SemanticPolicy `json:"policy"`
+		Error  *string
+	}
+	if err := jsonUnmarshal(results[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != nil {
+		return nil, errors.New(*jsonResult.Error)
+	}
+	return jsonResult.Policy, nil
+}
+
+func (m *wasmModule) descriptorKeys(descPtr uint64) []string {
+	fn := m.mod.ExportedFunction("descriptor_keys")
+	results, err := fn.Call(context.Background(), descPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	var jsonResult []string
+	if err := jsonUnmarshal(results[0], &jsonResult); err != nil {
+		log.Panicln(err)
+	}
+	return jsonResult
+}
+
 func (m *wasmModule) descriptorString(descPtr uint64) string {
 	fn := m.mod.ExportedFunction("descriptor_to_str")
 	result, err := fn.Call(context.Background(), descPtr)
