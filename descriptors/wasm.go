@@ -250,6 +250,17 @@ func (m *wasmModule) miniscriptCompile(script string) ([]byte, error) {
 	return resultBytes, nil
 }
 
+func (m *wasmModule) callbackTest(f func(string) string) string {
+	fn := m.mod.ExportedFunction("callback_test")
+	callbackId, cleanup := registerCallback(f)
+	defer cleanup()
+	results, err := fn.Call(context.Background(), uint64(callbackId))
+	if err != nil {
+		log.Panicln(err)
+	}
+	return fromRustString(results[0])
+}
+
 var wasmMod wasmModule
 
 func logString(_ context.Context, m api.Module, offset, byteCount uint32) {
@@ -270,6 +281,9 @@ func getWasmMod() *wasmModule {
 			NewFunctionBuilder().
 			WithFunc(logString).
 			Export("log").
+			NewFunctionBuilder().
+			WithFunc(invokeCallback).
+			Export("invoke_callback").
 			Instantiate(ctx)
 		if err != nil {
 			log.Panicln(err)

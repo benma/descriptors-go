@@ -14,6 +14,8 @@ use miniscript::descriptor::DescriptorType;
 use miniscript::miniscript::types;
 use miniscript::policy::Liftable;
 
+type CallbackId = u32;
+
 /// Returns a string from WebAssembly compatible numeric types representing
 /// its pointer and length.
 unsafe fn ptr_to_string(ptr: u64) -> String {
@@ -45,6 +47,16 @@ fn log(message: &str) {
 extern "C" {
     #[link_name = "log"]
     fn _log(ptr: u32, size: u32);
+
+    #[link_name = "invoke_callback"]
+    fn _invoke_callback(callback_id: CallbackId, arg_ptr: u32, arg_size: u32) -> u64;
+}
+
+fn invoke_callback(callback_id: CallbackId, arg: &str) -> String {
+    let ptr = unsafe { _invoke_callback(callback_id, arg.as_ptr() as _, arg.len() as _) };
+    let result_s = unsafe { ptr_to_string(ptr) };
+    unsafe { deallocate((ptr >> 32) as u32, ptr as u32) };
+    result_s
 }
 
 /// Allocates size bytes and leaks the pointer where they start.
@@ -252,6 +264,14 @@ pub unsafe extern "C" fn descriptor_keys(ptr: *const Descriptor) -> u64 {
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_desc_type(ptr: *const Descriptor) -> u64 {
     string_to_ptr((*ptr).desc_type())
+}
+
+/// For unit testing the callback mechanism. It calls the callback with an arbitary string and
+/// performs an arbitary modification of the result.
+#[no_mangle]
+pub unsafe extern "C" fn callback_test(callback_id: CallbackId) -> u64 {
+    let cb_result: String = invoke_callback(callback_id as _, "test");
+    string_to_ptr(format!("{} - suffix", cb_result))
 }
 
 #[no_mangle]
