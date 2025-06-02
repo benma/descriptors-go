@@ -16,7 +16,9 @@ use miniscript::policy::Liftable;
 
 /// Returns a string from WebAssembly compatible numeric types representing
 /// its pointer and length.
-unsafe fn ptr_to_string(ptr: u32, len: u32) -> String {
+unsafe fn ptr_to_string(ptr: u64) -> String {
+    let len: u32 = ptr as u32;
+    let ptr: u32 = (ptr >> 32) as u32;
     let slice = slice::from_raw_parts(ptr as *const u8, len as usize);
     let utf8 = std::str::from_utf8_unchecked(slice);
     String::from(utf8)
@@ -24,7 +26,7 @@ unsafe fn ptr_to_string(ptr: u32, len: u32) -> String {
 
 fn string_to_ptr(s: String) -> u64 {
     let len = s.len();
-    let ptr = Box::into_raw(s.into_bytes().into_boxed_slice()) as *mut u8 as u32;
+    let ptr = Box::into_raw(s.into_bytes().into_boxed_slice()) as *const u8 as u32;
     ((ptr as u64) << 32) | len as u64
 }
 
@@ -201,9 +203,9 @@ fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_parse(ptr: u32, len: u32) -> u64 {
+pub unsafe extern "C" fn descriptor_parse(ptr: u64) -> u64 {
     let result = || -> Result<u32, String> {
-        let descriptor_string = ptr_to_string(ptr, len);
+        let descriptor_string = ptr_to_string(ptr);
         Ok(Box::into_raw(_descriptor_parse(&descriptor_string)?) as u32)
     };
 
@@ -312,9 +314,9 @@ pub struct MiniscriptProperties {
 /// WebAssembly compatible string that contains the result in JSON format.
 /// This function is only used for unit tests.
 #[no_mangle]
-pub unsafe extern "C" fn miniscript_parse(ptr: u32, len: u32) -> u64 {
+pub unsafe extern "C" fn miniscript_parse(ptr: u64) -> u64 {
     let result = || -> Result<MiniscriptProperties, String> {
-        let miniscript_string = ptr_to_string(ptr, len);
+        let miniscript_string = ptr_to_string(ptr);
         let ms = miniscript::Miniscript::<String, miniscript::Segwitv0>::from_str_insane(
             &miniscript_string,
         )
@@ -347,9 +349,9 @@ pub unsafe extern "C" fn miniscript_parse(ptr: u32, len: u32) -> u64 {
 /// WebAssembly compatible string that contains the result in JSON format.
 /// This function is only used for unit tests.
 #[no_mangle]
-pub unsafe extern "C" fn miniscript_compile(ptr: u32, len: u32) -> u64 {
+pub unsafe extern "C" fn miniscript_compile(ptr: u64) -> u64 {
     let result = || -> Result<String, String> {
-        let miniscript_string = ptr_to_string(ptr, len);
+        let miniscript_string = ptr_to_string(ptr);
         let ms =
             miniscript::Miniscript::<bitcoin::PublicKey, miniscript::Segwitv0>::from_str_insane(
                 &miniscript_string,

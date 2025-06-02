@@ -38,14 +38,14 @@ type wasmModule struct {
 	mod api.Module
 }
 
-func (m *wasmModule) allocate(size uint64) (uint64, func()) {
+func (m *wasmModule) allocate(size uint32) (uint32, func()) {
 	allocate := m.mod.ExportedFunction("allocate")
-	results, err := allocate.Call(context.Background(), size)
+	results, err := allocate.Call(context.Background(), uint64(size))
 	if err != nil {
 		log.Panicln(err)
 	}
-	return results[0], func() {
-		m.deallocate(results[0], size)
+	return uint32(results[0]), func() {
+		m.deallocate(results[0], uint64(size))
 	}
 }
 
@@ -60,11 +60,10 @@ func (m *wasmModule) deallocate(ptr, size uint64) {
 func (m *wasmModule) descriptorParse(
 	descriptor string) (uint32, func(), error) {
 
-	strSize := uint64(len(descriptor))
 	strPtr, strDrop := rustString(descriptor)
 	defer strDrop()
 	parseFn := m.mod.ExportedFunction("descriptor_parse")
-	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	result, err := parseFn.Call(context.Background(), strPtr)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -207,11 +206,10 @@ type miniscriptProperties struct {
 func (m *wasmModule) miniscriptParse(script string) (*miniscriptProperties,
 	error) {
 
-	strSize := uint64(len(script))
 	strPtr, strDrop := rustString(script)
 	defer strDrop()
 	parseFn := m.mod.ExportedFunction("miniscript_parse")
-	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	result, err := parseFn.Call(context.Background(), strPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -226,11 +224,10 @@ func (m *wasmModule) miniscriptParse(script string) (*miniscriptProperties,
 }
 
 func (m *wasmModule) miniscriptCompile(script string) ([]byte, error) {
-	strSize := uint64(len(script))
 	strPtr, strDrop := rustString(script)
 	defer strDrop()
 	parseFn := m.mod.ExportedFunction("miniscript_compile")
-	result, err := parseFn.Call(context.Background(), strPtr, strSize)
+	result, err := parseFn.Call(context.Background(), strPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -289,14 +286,14 @@ func getWasmMod() *wasmModule {
 
 func rustString(str string) (uint64, func()) {
 	mod := getWasmMod()
-	strSize := uint64(len(str))
+	strSize := len(str)
 
-	strPtr, freeStr := mod.allocate(strSize)
+	strPtr, freeStr := mod.allocate(uint32(strSize))
 
 	if !mod.mod.Memory().Write(uint32(strPtr), []byte(str)) {
 		log.Panicf("rustString Memory().Write")
 	}
-	return strPtr, freeStr
+	return (uint64(strPtr) << 32) | uint64(strSize), freeStr
 }
 
 func fromRustString(ptr uint64) string {
