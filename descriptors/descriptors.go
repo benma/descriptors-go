@@ -108,3 +108,19 @@ const (
 func (d *Descriptor) DescType() DescType {
 	return DescType(d.mod.descriptorDescType(d.ptr))
 }
+
+// PlanAt returns a plan at the given multipath and derivation index if the provided assets are
+// sufficient to produce a non-malleable satisfaction.
+//
+// See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.plan
+func (d *Descriptor) PlanAt(multipathIndex uint32,
+	derivationIndex uint32, assets Assets) (*Plan, error) {
+
+	planPtr, drop, err := d.mod.descriptorPlanAt(
+		d.ptr, multipathIndex, derivationIndex, assets,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Plan{mod: d.mod, ptr: planPtr, drop: drop}, nil
+}

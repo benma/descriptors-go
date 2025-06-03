@@ -1,11 +1,14 @@
 mod lift;
+mod plan;
 
 extern crate alloc;
 extern crate core;
 
 use alloc::vec::Vec;
+use bitcoin::{absolute, relative};
 use core::fmt;
-use miniscript::ForEachKey;
+use miniscript::plan::AssetProvider;
+use miniscript::{DefiniteDescriptorKey, ForEachKey};
 use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
@@ -33,7 +36,7 @@ fn string_to_ptr(s: String) -> u64 {
 }
 
 fn json_to_ptr(value: serde_json::Value) -> u64 {
-    string_to_ptr(serde_json::to_string(&value).unwrap())
+    string_to_ptr(value.to_string())
 }
 
 #[allow(dead_code)]
@@ -202,6 +205,36 @@ impl Descriptor {
         };
         typ.into()
     }
+
+    fn plan_at(
+        &self,
+        multipath_index: u32,
+        derivation_index: u32,
+        assets: &impl AssetProvider<DefiniteDescriptorKey>,
+    ) -> serde_json::Value {
+        let result = || -> Result<Box<plan::Plan>, String> {
+            let descriptor = self
+                .single_descriptors
+                .get(multipath_index as usize)
+                .ok_or("multipath index out of bounds".to_string())?;
+            match descriptor
+                .at_derivation_index(derivation_index)
+                .map_err(|e| e.to_string())?
+                .plan(assets)
+            {
+                Ok(plan) => Ok(Box::new(plan::Plan::new(plan))),
+                Err(_) => Err("could not create plan".into()),
+            }
+        };
+        match result() {
+            Ok(plan) => serde_json::json!({
+                "ptr": Box::into_raw(plan) as u64,
+            }),
+            Err(err) => serde_json::json!({
+                "error": err,
+            }),
+        }
+    }
 }
 
 fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
@@ -233,6 +266,11 @@ pub unsafe extern "C" fn descriptor_parse(ptr: u64) -> u64 {
 
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_drop(ptr: *mut Descriptor) {
+    let _ = Box::from_raw(ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn plan_drop(ptr: *mut plan::Plan) {
     let _ = Box::from_raw(ptr);
 }
 
@@ -392,6 +430,61 @@ pub unsafe extern "C" fn miniscript_compile(ptr: u64) -> u64 {
             "error": err,
         })),
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_plan_at(
+    ptr: *const Descriptor,
+    multipath_index: u32,
+    derivation_index: u32,
+    assets_str_ptr: u64,
+) -> u64 {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct JsonAssets {
+        lookup_ecdsa_sig: Option<CallbackId>,
+        lookup_tap_key_spend_sig: Option<CallbackId>,
+        lookup_tap_leaf_script_sig: Option<CallbackId>,
+        relative_locktime: Option<u32>,
+        absolute_locktime: Option<u32>,
+    }
+
+    let json_assets: JsonAssets = serde_json::from_str(&ptr_to_string(assets_str_ptr)).unwrap();
+    let assets = plan::Assets {
+        lookup_ecdsa_sig: match json_assets.lookup_ecdsa_sig {
+            Some(callback_id) => Some(Box::new(move |pk| {
+                serde_json::from_str(&invoke_callback(callback_id, pk)).unwrap()
+            })),
+            None => None,
+        },
+        lookup_tap_key_spend_sig: match json_assets.lookup_tap_key_spend_sig {
+            Some(callback_id) => Some(Box::new(move |pk| {
+                serde_json::from_str(&invoke_callback(callback_id, pk)).unwrap()
+            })),
+            None => None,
+        },
+        lookup_tap_leaf_script_sig: match json_assets.lookup_tap_leaf_script_sig {
+            Some(callback_id) => Some(Box::new(move |pk, leaf_hash| {
+                serde_json::from_str(&invoke_callback(
+                    callback_id,
+                    &serde_json::json!({
+                        "pk": pk,
+                        "leafHash": leaf_hash,
+                    })
+                    .to_string(),
+                ))
+                .unwrap()
+            })),
+            None => None,
+        },
+        relative_timelock: json_assets
+            .relative_locktime
+            .map(|n| relative::LockTime::from_consensus(n).unwrap()),
+        absolute_timelock: json_assets
+            .absolute_locktime
+            .map(absolute::LockTime::from_consensus),
+    };
+    json_to_ptr((*ptr).plan_at(multipath_index, derivation_index, &assets))
 }
 
 #[cfg(test)]

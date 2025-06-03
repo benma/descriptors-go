@@ -118,6 +118,14 @@ func (m *wasmModule) descriptorDrop(descPtr uint64) {
 	}
 }
 
+func (m *wasmModule) planDrop(planPtr uint64) {
+	fn := m.mod.ExportedFunction("plan_drop")
+	_, err := fn.Call(context.Background(), planPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+}
+
 func (m *wasmModule) descriptorAddressAt(
 	descPtr uint64,
 	network Network,
@@ -261,6 +269,119 @@ func (m *wasmModule) callbackTest(f func(string) string) string {
 	return fromRustString(results[0])
 }
 
+func (m *wasmModule) descriptorPlanAt(
+	descPtr uint64,
+	multipathIndex uint32,
+	derivationIndex uint32,
+	assets Assets) (uint64, func(), error) {
+
+	lookupEcdsaSigId, cleanupLookupEcdsaSig := registerCallback(func(pk string) string {
+		type jsonResponse bool
+
+		response := jsonResponse(false)
+
+		if assets.LookupEcdsaSig != nil {
+			response = jsonResponse(assets.LookupEcdsaSig(pk))
+		}
+		return string(mustJsonMarshal(response))
+	})
+	defer cleanupLookupEcdsaSig()
+
+	lookupTapKeySpendSigId, cleanupLookupTapKeySpendSig := registerCallback(func(pk string) string {
+		type jsonResponse *uint32
+		response := jsonResponse(nil)
+
+		if assets.LookupTapKeySpendSig != nil {
+			sigSize, ok := assets.LookupTapKeySpendSig(pk)
+			if ok {
+				response = jsonResponse(&sigSize)
+			}
+		}
+		return string(mustJsonMarshal(response))
+	})
+	defer cleanupLookupTapKeySpendSig()
+
+	lookupTapLeafScriptSigId, cleanupLookupTapLeafScriptSig := registerCallback(func(params string) string {
+		type jsonResponse *uint32
+		response := jsonResponse(nil)
+
+		if assets.LookupTapLeafScriptSig != nil {
+			var jsonParams struct {
+				Pk       string
+				LeafHash string
+			}
+			mustJsonUnmarshal([]byte(params), &jsonParams)
+			sigSize, ok := assets.LookupTapLeafScriptSig(jsonParams.Pk, jsonParams.LeafHash)
+			if ok {
+				response = jsonResponse(&sigSize)
+			}
+		}
+		return string(mustJsonMarshal(response))
+	})
+	defer cleanupLookupTapLeafScriptSig()
+
+	assetsJson, freeAssetsJson := jsonMarshal(map[string]interface{}{
+		"lookupEcdsaSig":         lookupEcdsaSigId,
+		"lookupTapKeySpendSig":   lookupTapKeySpendSigId,
+		"lookupTapLeafScriptSig": lookupTapLeafScriptSigId,
+		"relativeLocktime":       assets.RelativeLocktime,
+		"absoluteLocktime":       assets.AbsoluteLocktime,
+	})
+	defer freeAssetsJson()
+
+	fn := m.mod.ExportedFunction("descriptor_plan_at")
+	result, err := fn.Call(
+		context.Background(),
+		descPtr,
+		uint64(multipathIndex),
+		uint64(derivationIndex),
+		assetsJson,
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+	var jsonResult struct {
+		Ptr   uint64
+		Error string
+	}
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return 0, nil, err
+	}
+	if jsonResult.Error != "" {
+		return 0, nil, errors.New(jsonResult.Error)
+	}
+	return jsonResult.Ptr, func() {
+		m.planDrop(jsonResult.Ptr)
+	}, nil
+}
+
+func (m *wasmModule) planSatisfactionWeight(planPtr uint64) uint64 {
+	fn := m.mod.ExportedFunction("plan_satisfaction_weight")
+	results, err := fn.Call(context.Background(), planPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return results[0]
+}
+
+func (m *wasmModule) planScriptSigSize(planPtr uint64) uint64 {
+	fn := m.mod.ExportedFunction("plan_scriptsig_size")
+	results, err := fn.Call(context.Background(), planPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return results[0]
+}
+
+func (m *wasmModule) planWitnessSize(planPtr uint64) uint64 {
+	fn := m.mod.ExportedFunction("plan_witness_size")
+	results, err := fn.Call(context.Background(), planPtr)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return results[0]
+}
+
 var wasmMod wasmModule
 
 func logString(_ context.Context, m api.Module, offset, byteCount uint32) {
@@ -325,4 +446,26 @@ func fromRustString(ptr uint64) string {
 
 func jsonUnmarshal(ptr uint64, result interface{}) error {
 	return json.Unmarshal([]byte(fromRustString(ptr)), result)
+}
+
+func mustJsonUnmarshal(j []byte, result interface{}) {
+	if err := json.Unmarshal(j, result); err != nil {
+		log.Panicf("%v", err)
+	}
+}
+
+func jsonMarshal(value interface{}) (uint64, func()) {
+	jsonBytes, err := json.Marshal(value)
+	if err != nil {
+		log.Panicf("%v", err)
+	}
+	return rustString(string(jsonBytes))
+}
+
+func mustJsonMarshal(value interface{}) []byte {
+	jsonBytes, err := json.Marshal(value)
+	if err != nil {
+		log.Panicf("%v", err)
+	}
+	return jsonBytes
 }
