@@ -58,7 +58,7 @@ func (m *wasmModule) deallocate(ptr, size uint64) {
 }
 
 func (m *wasmModule) descriptorParse(
-	descriptor string) (uint32, func(), error) {
+	descriptor string) (uint64, func(), error) {
 
 	strPtr, strDrop := rustString(descriptor)
 	defer strDrop()
@@ -68,7 +68,7 @@ func (m *wasmModule) descriptorParse(
 		return 0, nil, err
 	}
 	var jsonResult struct {
-		Ptr   uint32
+		Ptr   uint64
 		Error string
 	}
 	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
@@ -78,7 +78,7 @@ func (m *wasmModule) descriptorParse(
 		return 0, nil, errors.New(jsonResult.Error)
 	}
 	descPtr := jsonResult.Ptr
-	return descPtr, func() { m.descriptorDrop(uint64(descPtr)) }, nil
+	return descPtr, func() { m.descriptorDrop(descPtr) }, nil
 }
 
 func (m *wasmModule) descriptorMultipathLen(descPtr uint64) uint64 {

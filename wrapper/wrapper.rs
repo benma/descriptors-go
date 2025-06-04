@@ -250,14 +250,14 @@ fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
 
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_parse(ptr: StrPtr) -> StrPtr {
-    let result = || -> Result<u32, String> {
+    let result = || -> Result<Box<Descriptor>, String> {
         let descriptor_string = ptr_to_string(ptr);
-        Ok(Box::into_raw(_descriptor_parse(&descriptor_string)?) as u32)
+        Ok(_descriptor_parse(&descriptor_string)?)
     };
 
     match result() {
-        Ok(ptr) => json_to_ptr(serde_json::json!({
-            "ptr": ptr,
+        Ok(descriptor) => json_to_ptr(serde_json::json!({
+            "ptr": Box::into_raw(descriptor) as u64,
         })),
         Err(err) => json_to_ptr(serde_json::json!({
             "error": err,
