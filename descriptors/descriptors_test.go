@@ -435,3 +435,100 @@ func TestDescType(t *testing.T) {
 		require.Equal(t, test.expected, descriptor.DescType())
 	}
 }
+
+func TestPlanAt(t *testing.T) {
+	descriptorTr, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr")
+	require.NoError(t, err)
+	defer descriptorTr.Close()
+
+	// Taproot leaf script spend path, fail (no relative lock time specified)
+	t.Run("taproot leaf script fail 1", func(t *testing.T) {
+		_, err := descriptorTr.PlanAt(0, 0,
+			Assets{
+				LookupTapLeafScriptSig: func(pk string, leafHash string) (uint32, bool) {
+					return 64, true
+				},
+			},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("taproot leaf script fail 2", func(t *testing.T) {
+		relativeLocktimeTooSmall := uint32(65535 - 1)
+
+		// Taproot leaf script spend path, fail (relative lock time not high enough)
+		_, err := descriptorTr.PlanAt(0, 0,
+			Assets{
+				LookupTapLeafScriptSig: func(pk string, leafHash string) (uint32, bool) {
+					return 64, true
+				},
+				RelativeLocktime: &relativeLocktimeTooSmall,
+			},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("taproot leaf script OK", func(t *testing.T) {
+		relativeLocktimeOk := uint32(65535)
+
+		// Taproot leaf script spend path, OK
+		plan, err := descriptorTr.PlanAt(0, 0,
+			Assets{
+				LookupTapLeafScriptSig: func(pk string, leafHash string) (uint32, bool) {
+					require.Equal(t,
+						"[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/0/0",
+						pk)
+					require.Equal(t,
+						"fc5460a80d4b2477db9612cb453da10d33c8dffa569c7c40efe94e0591451120",
+						leafHash)
+					return 64, true
+				},
+				RelativeLocktime: &relativeLocktimeOk,
+			},
+		)
+		require.NoError(t, err)
+		defer plan.Close()
+		require.Equal(t, uint64(142), plan.SatisfactionWeight())
+		require.Equal(t, uint64(1), plan.ScriptSigSize())
+		require.Equal(t, uint64(138), plan.WitnessSize())
+	})
+
+	t.Run("taproot key path spend OK", func(t *testing.T) {
+		// Taproot key spend path, OK
+		plan, err := descriptorTr.PlanAt(0, 0,
+			Assets{
+				LookupTapKeySpendSig: func(pk string) (uint32, bool) {
+					require.Equal(t,
+						"[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/0/0",
+						pk)
+					return 64, true
+				},
+			},
+		)
+		require.NoError(t, err)
+		defer plan.Close()
+		require.Equal(t, uint64(70), plan.SatisfactionWeight())
+	})
+
+	t.Run("wsh OK", func(t *testing.T) {
+		descriptor, err := NewDescriptor("wsh(pk([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*))")
+		require.NoError(t, err)
+		defer descriptor.Close()
+
+		plan, err := descriptor.PlanAt(0, 0,
+			Assets{
+				LookupEcdsaSig: func(pk string) bool {
+					require.Equal(t,
+						"[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/0/0",
+						pk)
+					return true
+				},
+			},
+		)
+		require.NoError(t, err)
+		defer plan.Close()
+		require.Equal(t, uint64(78), plan.SatisfactionWeight())
+		require.Equal(t, uint64(1), plan.ScriptSigSize())
+		require.Equal(t, uint64(74), plan.WitnessSize())
+	})
+}
