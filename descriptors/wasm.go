@@ -36,6 +36,9 @@ var initOnce sync.Once
 
 type wasmModule struct {
 	mod api.Module
+	// `Call()` is not goroutine-safe, see
+	// https://github.com/tetratelabs/wazero/blob/0dea5d7ee1de12d2817d6ac8548a4d36aaf59aea/api/wasm.go#L378
+	callMu *sync.Mutex
 }
 
 func (m *wasmModule) allocate(size uint32) (uint32, func()) {
@@ -59,6 +62,8 @@ func (m *wasmModule) deallocate(ptr, size uint64) {
 
 func (m *wasmModule) descriptorParse(
 	descriptor string) (uint64, func(), error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
 
 	strPtr, strDrop := rustString(descriptor)
 	defer strDrop()
@@ -82,6 +87,9 @@ func (m *wasmModule) descriptorParse(
 }
 
 func (m *wasmModule) descriptorMultipathLen(descPtr uint64) uint64 {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	descriptorLenFn := m.mod.ExportedFunction("descriptor_multipath_len")
 	results, err := descriptorLenFn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -91,6 +99,9 @@ func (m *wasmModule) descriptorMultipathLen(descPtr uint64) uint64 {
 }
 
 func (m *wasmModule) descriptorMaxWeightToSatisfy(descPtr uint64) (uint64, error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("descriptor_max_weight_to_satisfy")
 	results, err := fn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -111,6 +122,9 @@ func (m *wasmModule) descriptorMaxWeightToSatisfy(descPtr uint64) (uint64, error
 }
 
 func (m *wasmModule) descriptorDrop(descPtr uint64) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	descriptorDropFn := m.mod.ExportedFunction("descriptor_drop")
 	_, err := descriptorDropFn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -119,6 +133,9 @@ func (m *wasmModule) descriptorDrop(descPtr uint64) {
 }
 
 func (m *wasmModule) planDrop(planPtr uint64) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("plan_drop")
 	_, err := fn.Call(context.Background(), planPtr)
 	if err != nil {
@@ -131,6 +148,9 @@ func (m *wasmModule) descriptorAddressAt(
 	network Network,
 	multipathIndex uint32,
 	derivationIndex uint32) (string, error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("descriptor_address_at")
 	result, err := fn.Call(
 		context.Background(),
@@ -156,6 +176,9 @@ func (m *wasmModule) descriptorAddressAt(
 }
 
 func (m *wasmModule) descriptorLift(descPtr uint64) (*SemanticPolicy, error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("descriptor_lift")
 	results, err := fn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -175,6 +198,9 @@ func (m *wasmModule) descriptorLift(descPtr uint64) (*SemanticPolicy, error) {
 }
 
 func (m *wasmModule) descriptorKeys(descPtr uint64) []string {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("descriptor_keys")
 	results, err := fn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -188,6 +214,9 @@ func (m *wasmModule) descriptorKeys(descPtr uint64) []string {
 }
 
 func (m *wasmModule) descriptorDescType(descPtr uint64) string {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("descriptor_desc_type")
 	results, err := fn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -197,6 +226,9 @@ func (m *wasmModule) descriptorDescType(descPtr uint64) string {
 }
 
 func (m *wasmModule) descriptorString(descPtr uint64) string {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("descriptor_to_str")
 	result, err := fn.Call(context.Background(), descPtr)
 	if err != nil {
@@ -213,6 +245,8 @@ type miniscriptProperties struct {
 
 func (m *wasmModule) miniscriptParse(script string) (*miniscriptProperties,
 	error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
 
 	strPtr, strDrop := rustString(script)
 	defer strDrop()
@@ -232,6 +266,9 @@ func (m *wasmModule) miniscriptParse(script string) (*miniscriptProperties,
 }
 
 func (m *wasmModule) miniscriptCompile(script string) ([]byte, error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	strPtr, strDrop := rustString(script)
 	defer strDrop()
 	parseFn := m.mod.ExportedFunction("miniscript_compile")
@@ -259,6 +296,9 @@ func (m *wasmModule) miniscriptCompile(script string) ([]byte, error) {
 }
 
 func (m *wasmModule) callbackTest(f func(string) string) string {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("callback_test")
 	callbackId, cleanup := registerCallback(f)
 	defer cleanup()
@@ -274,6 +314,8 @@ func (m *wasmModule) descriptorPlanAt(
 	multipathIndex uint32,
 	derivationIndex uint32,
 	assets Assets) (uint64, func(), error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
 
 	lookupEcdsaSigId, cleanupLookupEcdsaSig := registerCallback(func(pk string) string {
 		type jsonResponse bool
@@ -356,6 +398,9 @@ func (m *wasmModule) descriptorPlanAt(
 }
 
 func (m *wasmModule) planSatisfactionWeight(planPtr uint64) uint64 {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("plan_satisfaction_weight")
 	results, err := fn.Call(context.Background(), planPtr)
 	if err != nil {
@@ -365,6 +410,9 @@ func (m *wasmModule) planSatisfactionWeight(planPtr uint64) uint64 {
 }
 
 func (m *wasmModule) planScriptSigSize(planPtr uint64) uint64 {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("plan_scriptsig_size")
 	results, err := fn.Call(context.Background(), planPtr)
 	if err != nil {
@@ -374,6 +422,9 @@ func (m *wasmModule) planScriptSigSize(planPtr uint64) uint64 {
 }
 
 func (m *wasmModule) planWitnessSize(planPtr uint64) uint64 {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	fn := m.mod.ExportedFunction("plan_witness_size")
 	results, err := fn.Call(context.Background(), planPtr)
 	if err != nil {
@@ -414,7 +465,7 @@ func getWasmMod() *wasmModule {
 		if err != nil {
 			log.Panicln(err)
 		}
-		wasmMod = wasmModule{mod}
+		wasmMod = wasmModule{mod, &sync.Mutex{}}
 	})
 	return &wasmMod
 }
