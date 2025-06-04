@@ -4,9 +4,8 @@ package descriptors
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html.
 type Plan struct {
-	mod  *wasmModule
-	ptr  uint64
-	drop func()
+	mod *wasmModule
+	ptr uint64
 }
 
 // Asset describes the present/missing lookup table for constructing witness templates. Any
@@ -25,11 +24,6 @@ type Assets struct {
 	RelativeLocktime *uint32
 	// Maximum absolute timelock allowed.
 	AbsoluteLocktime *uint32
-}
-
-// Close releases the resources associated with the plan.
-func (p *Plan) Close() {
-	p.drop()
 }
 
 // SatisfactionWeight is the weight, in witness units, needed for satisfying this plan (includes
