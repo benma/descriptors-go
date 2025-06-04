@@ -17,11 +17,12 @@ use miniscript::descriptor::DescriptorType;
 use miniscript::miniscript::types;
 use miniscript::policy::Liftable;
 
+type StrPtr = u64;
 type CallbackId = u32;
 
 /// Returns a string from WebAssembly compatible numeric types representing
 /// its pointer and length.
-unsafe fn ptr_to_string(ptr: u64) -> String {
+unsafe fn ptr_to_string(ptr: StrPtr) -> String {
     let len: u32 = ptr as u32;
     let ptr: u32 = (ptr >> 32) as u32;
     let slice = slice::from_raw_parts(ptr as *const u8, len as usize);
@@ -29,13 +30,13 @@ unsafe fn ptr_to_string(ptr: u64) -> String {
     String::from(utf8)
 }
 
-fn string_to_ptr(s: String) -> u64 {
+fn string_to_ptr(s: String) -> StrPtr {
     let len = s.len();
     let ptr = Box::into_raw(s.into_bytes().into_boxed_slice()) as *const u8 as u32;
     ((ptr as u64) << 32) | len as u64
 }
 
-fn json_to_ptr(value: serde_json::Value) -> u64 {
+fn json_to_ptr(value: serde_json::Value) -> StrPtr {
     string_to_ptr(value.to_string())
 }
 
@@ -52,7 +53,7 @@ extern "C" {
     fn _log(ptr: u32, size: u32);
 
     #[link_name = "invoke_callback"]
-    fn _invoke_callback(callback_id: CallbackId, arg_ptr: u32, arg_size: u32) -> u64;
+    fn _invoke_callback(callback_id: CallbackId, arg_ptr: u32, arg_size: u32) -> StrPtr;
 }
 
 fn invoke_callback(callback_id: CallbackId, arg: &str) -> String {
@@ -248,7 +249,7 @@ fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_parse(ptr: u64) -> u64 {
+pub unsafe extern "C" fn descriptor_parse(ptr: StrPtr) -> StrPtr {
     let result = || -> Result<u32, String> {
         let descriptor_string = ptr_to_string(ptr);
         Ok(Box::into_raw(_descriptor_parse(&descriptor_string)?) as u32)
@@ -285,29 +286,29 @@ pub unsafe extern "C" fn descriptor_max_weight_to_satisfy(ptr: *const Descriptor
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> u64 {
+pub unsafe extern "C" fn descriptor_to_str(ptr: *const Descriptor) -> StrPtr {
     string_to_ptr((*ptr).to_str())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_lift(ptr: *const Descriptor) -> u64 {
+pub unsafe extern "C" fn descriptor_lift(ptr: *const Descriptor) -> StrPtr {
     json_to_ptr((*ptr).lift())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_keys(ptr: *const Descriptor) -> u64 {
+pub unsafe extern "C" fn descriptor_keys(ptr: *const Descriptor) -> StrPtr {
     json_to_ptr((*ptr).keys())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_desc_type(ptr: *const Descriptor) -> u64 {
+pub unsafe extern "C" fn descriptor_desc_type(ptr: *const Descriptor) -> StrPtr {
     string_to_ptr((*ptr).desc_type())
 }
 
 /// For unit testing the callback mechanism. It calls the callback with an arbitary string and
 /// performs an arbitary modification of the result.
 #[no_mangle]
-pub unsafe extern "C" fn callback_test(callback_id: CallbackId) -> u64 {
+pub unsafe extern "C" fn callback_test(callback_id: CallbackId) -> StrPtr {
     let cb_result: String = invoke_callback(callback_id as _, "test");
     string_to_ptr(format!("{} - suffix", cb_result))
 }
@@ -318,7 +319,7 @@ pub unsafe extern "C" fn descriptor_address_at(
     network: u32,
     multipath_index: u32,
     derivation_index: u32,
-) -> u64 {
+) -> StrPtr {
     json_to_ptr((*ptr).address_at(network, multipath_index, derivation_index))
 }
 
@@ -372,7 +373,7 @@ pub struct MiniscriptProperties {
 /// WebAssembly compatible string that contains the result in JSON format.
 /// This function is only used for unit tests.
 #[no_mangle]
-pub unsafe extern "C" fn miniscript_parse(ptr: u64) -> u64 {
+pub unsafe extern "C" fn miniscript_parse(ptr: StrPtr) -> StrPtr {
     let result = || -> Result<MiniscriptProperties, String> {
         let miniscript_string = ptr_to_string(ptr);
         let ms = miniscript::Miniscript::<String, miniscript::Segwitv0>::from_str_insane(
@@ -407,7 +408,7 @@ pub unsafe extern "C" fn miniscript_parse(ptr: u64) -> u64 {
 /// WebAssembly compatible string that contains the result in JSON format.
 /// This function is only used for unit tests.
 #[no_mangle]
-pub unsafe extern "C" fn miniscript_compile(ptr: u64) -> u64 {
+pub unsafe extern "C" fn miniscript_compile(ptr: StrPtr) -> StrPtr {
     let result = || -> Result<String, String> {
         let miniscript_string = ptr_to_string(ptr);
         let ms =
@@ -437,8 +438,8 @@ pub unsafe extern "C" fn descriptor_plan_at(
     ptr: *const Descriptor,
     multipath_index: u32,
     derivation_index: u32,
-    assets_str_ptr: u64,
-) -> u64 {
+    assets_str_ptr: StrPtr,
+) -> StrPtr {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct JsonAssets {
