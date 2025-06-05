@@ -48,3 +48,28 @@ func (p *Plan) ScriptSigSize() uint64 {
 func (p *Plan) WitnessSize() uint64 {
 	return p.mod.planWitnessSize(p.ptr)
 }
+
+type Satisfier struct {
+	// Given a public key, look up an ECDSA signature with that key.
+	// The signature must be a valid DER-encoded ECDSA sig including the SighashType.
+	LookupEcdsaSig func(string) ([]byte, bool)
+	// Lookup the tap key spend sig. The signature must be 64 bytes.
+	LookupTapKeySpendSig func() ([]byte, bool)
+	// Given a public key and a associated leaf hash, look up an schnorr signature with that key.
+	// The signature must be 64 bytes.
+	LookupTapLeafScriptSig func(string, string) ([]byte, bool)
+}
+
+type SatisfyResult struct {
+	Witness   [][]byte
+	ScriptSig []byte
+}
+
+// Try creating the final script_sig and witness using a Satisfier.
+//
+// See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html#method.satisfy.
+func (p *Plan) Satisfy(satisfier *Satisfier) (*SatisfyResult, error) {
+	return p.mod.planSatisfy(
+		p.ptr, satisfier,
+	)
+}
