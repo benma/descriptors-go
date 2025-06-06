@@ -433,6 +433,92 @@ func (m *wasmModule) planWitnessSize(planPtr uint64) uint64 {
 	return results[0]
 }
 
+func (m *wasmModule) planSatisfy(
+	planPtr uint64,
+	satisfier *Satisfier) (*SatisfyResult, error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
+	lookupEcdsaSigId, cleanupLookupEcdsaSig := registerCallback(func(pk string) string {
+		type jsonResponse *string
+		response := jsonResponse(nil)
+
+		if satisfier.LookupEcdsaSig != nil {
+			signatureBytes, ok := satisfier.LookupEcdsaSig(pk)
+			if ok {
+				signatureHex := hex.EncodeToString(signatureBytes)
+				response = jsonResponse(&signatureHex)
+			}
+		}
+		return string(mustJsonMarshal(response))
+	})
+	defer cleanupLookupEcdsaSig()
+
+	lookupTapKeySpendSigId, cleanupLookupTapKeySpendSig := registerCallback(func(string) string {
+		type jsonResponse *string
+		response := jsonResponse(nil)
+
+		if satisfier.LookupTapKeySpendSig != nil {
+			signatureBytes, ok := satisfier.LookupTapKeySpendSig()
+			if ok {
+				signatureHex := hex.EncodeToString(signatureBytes)
+				response = jsonResponse(&signatureHex)
+			}
+		}
+		return string(mustJsonMarshal(response))
+	})
+	defer cleanupLookupTapKeySpendSig()
+
+	lookupTapLeafScriptSigId, cleanupLookupTapLeafScriptSig := registerCallback(func(params string) string {
+		type jsonResponse *string
+		response := jsonResponse(nil)
+
+		if satisfier.LookupTapLeafScriptSig != nil {
+			var jsonParams struct {
+				Pk       string
+				LeafHash string
+			}
+			mustJsonUnmarshal([]byte(params), &jsonParams)
+			signatureBytes, ok := satisfier.LookupTapLeafScriptSig(jsonParams.Pk, jsonParams.LeafHash)
+			if ok {
+				signatureHex := hex.EncodeToString(signatureBytes)
+				response = jsonResponse(&signatureHex)
+			}
+		}
+		return string(mustJsonMarshal(response))
+	})
+	defer cleanupLookupTapLeafScriptSig()
+
+	satisfierJson, freeSatisfierJson := jsonMarshal(map[string]interface{}{
+		"lookupEcdsaSig":         lookupEcdsaSigId,
+		"lookupTapKeySpendSig":   lookupTapKeySpendSigId,
+		"lookupTapLeafScriptSig": lookupTapLeafScriptSigId,
+	})
+	defer freeSatisfierJson()
+
+	fn := m.mod.ExportedFunction("plan_satisfy")
+	result, err := fn.Call(
+		context.Background(),
+		planPtr,
+		satisfierJson,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var jsonResult struct {
+		SatisfyResult
+		Error string
+	}
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != "" {
+		return nil, errors.New(jsonResult.Error)
+	}
+
+	return &jsonResult.SatisfyResult, nil
+}
+
 var wasmMod wasmModule
 
 func logString(_ context.Context, m api.Module, offset, byteCount uint32) {

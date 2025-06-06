@@ -1,6 +1,7 @@
 package descriptors
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -488,6 +489,29 @@ func TestPlanAt(t *testing.T) {
 		require.Equal(t, uint64(142), plan.SatisfactionWeight())
 		require.Equal(t, uint64(1), plan.ScriptSigSize())
 		require.Equal(t, uint64(138), plan.WitnessSize())
+
+		signature := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		satisfyResult, err := plan.Satisfy(&Satisfier{
+			LookupTapLeafScriptSig: func(pk string, leafHash string) ([]byte, bool) {
+				return signature, true
+			},
+		})
+		require.NoError(t, err)
+		expectedScript, err := hex.DecodeString("200b44e43e2f276697d23c2248f80bb09e84f702ddae399d194f5132f472bf8713ad03ffff00b2")
+		require.NoError(t, err)
+		expectedControlBlock, err := hex.DecodeString("c126547ceb5352bd238ca7e1da004e9d6625baf3324feda4ead69436042a535104")
+		require.NoError(t, err)
+		require.Equal(t,
+			&SatisfyResult{
+				Witness: [][]byte{
+					signature,
+					expectedScript,
+					expectedControlBlock,
+				},
+				ScriptSig: []byte{},
+			},
+			satisfyResult,
+		)
 	})
 
 	t.Run("taproot key path spend OK", func(t *testing.T) {
@@ -504,6 +528,21 @@ func TestPlanAt(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Equal(t, uint64(70), plan.SatisfactionWeight())
+
+		signature := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		satisfyResult, err := plan.Satisfy(&Satisfier{
+			LookupTapKeySpendSig: func() ([]byte, bool) {
+				return signature, true
+			},
+		})
+		require.NoError(t, err)
+		require.Equal(t,
+			&SatisfyResult{
+				Witness:   [][]byte{signature},
+				ScriptSig: []byte{},
+			},
+			satisfyResult,
+		)
 	})
 
 	t.Run("wsh OK", func(t *testing.T) {
@@ -524,5 +563,77 @@ func TestPlanAt(t *testing.T) {
 		require.Equal(t, uint64(78), plan.SatisfactionWeight())
 		require.Equal(t, uint64(1), plan.ScriptSigSize())
 		require.Equal(t, uint64(74), plan.WitnessSize())
+
+		signature, err := hex.DecodeString("3045022100e621a7686d51fb23e761adff4367881a6fb16bc5635ff34eea39afdaf033e4d702207998512f52bd3dae100951a6df9e66bcb78c194dcaa3c7fd2451180b5cc94d4e01")
+		require.NoError(t, err)
+		satisfyResult, err := plan.Satisfy(&Satisfier{
+			LookupEcdsaSig: func(pk string) ([]byte, bool) {
+				return signature, true
+			},
+		})
+		require.NoError(t, err)
+		require.Equal(t,
+			&SatisfyResult{
+				Witness:   [][]byte{signature},
+				ScriptSig: []byte{},
+			},
+			satisfyResult,
+		)
+	})
+
+	t.Run("wsh-sh OK", func(t *testing.T) {
+		descriptor, err := NewDescriptor("sh(wsh(pk([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*)))")
+		require.NoError(t, err)
+
+		plan, err := descriptor.PlanAt(0, 0,
+			Assets{
+				LookupEcdsaSig: func(pk string) bool {
+					require.Equal(t,
+						"[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/0/0",
+						pk)
+					return true
+				},
+			},
+		)
+		require.NoError(t, err)
+		require.Equal(t, uint64(214), plan.SatisfactionWeight())
+		require.Equal(t, uint64(35), plan.ScriptSigSize())
+		require.Equal(t, uint64(74), plan.WitnessSize())
+
+		signature, err := hex.DecodeString("3045022100e621a7686d51fb23e761adff4367881a6fb16bc5635ff34eea39afdaf033e4d702207998512f52bd3dae100951a6df9e66bcb78c194dcaa3c7fd2451180b5cc94d4e01")
+		require.NoError(t, err)
+
+		satisfyResult, err := plan.Satisfy(&Satisfier{
+			LookupEcdsaSig: func(pk string) ([]byte, bool) {
+				return signature, true
+			},
+		})
+		require.NoError(t, err)
+		expectedScriptSig, err := hex.DecodeString("220020d5c86b71799a3e4f4db05698009efa8eed80a86ea47b5caebc47b01d5384b2f1")
+		require.NoError(t, err)
+		require.Equal(t,
+			&SatisfyResult{
+				Witness:   [][]byte{signature},
+				ScriptSig: expectedScriptSig,
+			},
+			satisfyResult,
+		)
+	})
+
+	t.Run("plan satisfy fail", func(t *testing.T) {
+		plan, err := descriptorTr.PlanAt(0, 0,
+			Assets{
+				LookupTapKeySpendSig: func(pk string) (uint32, bool) {
+					require.Equal(t,
+						"[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/0/0",
+						pk)
+					return 64, true
+				},
+			},
+		)
+		require.NoError(t, err)
+
+		_, err = plan.Satisfy(&Satisfier{})
+		require.EqualError(t, err, "could not satisfy")
 	})
 }
