@@ -2,6 +2,7 @@ package descriptors
 
 import (
 	_ "embed"
+	"runtime"
 )
 
 // Descriptor is a struct encapsulating the parsed instance of a descriptor.
@@ -15,20 +16,17 @@ type Descriptor struct {
 // Descriptor instance.
 func NewDescriptor(descriptor string) (*Descriptor, error) {
 	mod := getWasmMod()
-	descPtr, close, err := mod.descriptorParse(descriptor)
+	descPtr, drop, err := mod.descriptorParse(descriptor)
 	if err != nil {
 		return nil, err
 	}
-	return &Descriptor{
-		mod:   mod,
-		ptr:   uint64(descPtr),
-		close: close,
-	}, nil
-}
+	result := &Descriptor{
+		mod: mod,
+		ptr: uint64(descPtr),
+	}
+	runtime.AddCleanup(result, func(struct{}) { drop() }, struct{}{})
 
-// Close releases the resources associated with the descriptor.
-func (d *Descriptor) Close() {
-	d.close()
+	return result, nil
 }
 
 // String returns the complete string representation of the descriptor,
@@ -122,5 +120,7 @@ func (d *Descriptor) PlanAt(multipathIndex uint32,
 	if err != nil {
 		return nil, err
 	}
-	return &Plan{mod: d.mod, ptr: planPtr, drop: drop}, nil
+	plan := &Plan{mod: d.mod, ptr: planPtr}
+	runtime.AddCleanup(plan, func(struct{}) { drop() }, struct{}{})
+	return plan, nil
 }

@@ -66,7 +66,6 @@ func TestDerivationVectors(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			defer descriptor.Close()
 
 			require.EqualValues(
 				t, vector.NumMultipath,
@@ -439,7 +438,6 @@ func TestDescType(t *testing.T) {
 func TestPlanAt(t *testing.T) {
 	descriptorTr, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr")
 	require.NoError(t, err)
-	defer descriptorTr.Close()
 
 	// Taproot leaf script spend path, fail (no relative lock time specified)
 	t.Run("taproot leaf script fail 1", func(t *testing.T) {
@@ -487,7 +485,6 @@ func TestPlanAt(t *testing.T) {
 			},
 		)
 		require.NoError(t, err)
-		defer plan.Close()
 		require.Equal(t, uint64(142), plan.SatisfactionWeight())
 		require.Equal(t, uint64(1), plan.ScriptSigSize())
 		require.Equal(t, uint64(138), plan.WitnessSize())
@@ -506,14 +503,12 @@ func TestPlanAt(t *testing.T) {
 			},
 		)
 		require.NoError(t, err)
-		defer plan.Close()
 		require.Equal(t, uint64(70), plan.SatisfactionWeight())
 	})
 
 	t.Run("wsh OK", func(t *testing.T) {
 		descriptor, err := NewDescriptor("wsh(pk([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*))")
 		require.NoError(t, err)
-		defer descriptor.Close()
 
 		plan, err := descriptor.PlanAt(0, 0,
 			Assets{
@@ -526,7 +521,6 @@ func TestPlanAt(t *testing.T) {
 			},
 		)
 		require.NoError(t, err)
-		defer plan.Close()
 		require.Equal(t, uint64(78), plan.SatisfactionWeight())
 		require.Equal(t, uint64(1), plan.ScriptSigSize())
 		require.Equal(t, uint64(74), plan.WitnessSize())
