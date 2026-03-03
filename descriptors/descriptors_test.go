@@ -486,9 +486,9 @@ func TestPlanAt(t *testing.T) {
 			},
 		)
 		require.NoError(t, err)
-		require.Equal(t, uint64(142), plan.SatisfactionWeight())
+		require.Equal(t, uint64(144), plan.SatisfactionWeight())
 		require.Equal(t, uint64(1), plan.ScriptSigSize())
-		require.Equal(t, uint64(138), plan.WitnessSize())
+		require.Equal(t, uint64(140), plan.WitnessSize())
 
 		signature := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		satisfyResult, err := plan.Satisfy(&Satisfier{

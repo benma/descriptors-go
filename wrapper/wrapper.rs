@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use bitcoin::{absolute, relative};
 use core::fmt;
 use miniscript::plan::AssetProvider;
-use miniscript::{DefiniteDescriptorKey, ForEachKey};
+use miniscript::DefiniteDescriptorKey;
 use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
@@ -165,27 +165,11 @@ impl Descriptor {
     }
 
     fn keys(&self) -> serde_json::Value {
-        let keys: Vec<String> = match &self.descriptor {
-            miniscript::Descriptor::Bare(_)
-            | miniscript::Descriptor::Pkh(_)
-            | miniscript::Descriptor::Wpkh(_)
-            | miniscript::Descriptor::Sh(_)
-            | miniscript::Descriptor::Wsh(_) => {
-                let mut keys: Vec<String> = Vec::new();
-                self.descriptor.for_each_key(|key| {
-                    keys.push(key.to_string());
-                    true
-                });
-                keys
-            }
-            // Handle separately because ForEachKey iterates the Taproot tree before the internal
-            // key, but we want to return the keys in-order from left to right.
-            // See https://github.com/rust-bitcoin/rust-miniscript/issues/821
-            miniscript::Descriptor::Tr(tr) => core::iter::once(tr.internal_key().clone())
-                .chain(tr.iter_scripts().flat_map(|(_, ms)| ms.iter_pk()))
-                .map(|key| key.to_string())
-                .collect(),
-        };
+        let keys: Vec<String> = self
+            .descriptor
+            .iter_pk()
+            .map(|key| key.to_string())
+            .collect();
 
         serde_json::json!(keys)
     }
@@ -384,7 +368,7 @@ pub unsafe extern "C" fn miniscript_parse(ptr: StrPtr) -> StrPtr {
 
         Ok(MiniscriptProperties {
             types: ms_types.into_iter().collect(),
-            op_codes: ms.ext.ops.count,
+            op_codes: ms.ext.static_ops,
         })
     };
     match result() {

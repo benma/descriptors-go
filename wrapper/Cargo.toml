@@ -10,9 +10,9 @@ name = "wrapper"
 path = "wrapper.rs"
 
 [dependencies]
-bitcoin = { version = "0.32", features = ["base64"] }
+bitcoin = { version = "0.32.8", features = ["base64"] }
 serde = { version = "1", features = ["derive"] }
-miniscript = { version = "12.2.0", default-features = false, features = ["no-std"] }
+miniscript = { version = "13.0.0", default-features = false }
 serde_json = "1.0.132"
 
 [profile.release]
