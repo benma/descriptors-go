@@ -1,4 +1,4 @@
-RUST_VERSION := 1.86.0
+RUST_VERSION := 1.93.1
 
 build-wrapper:
 	cd wrapper && docker run --rm -v $$(pwd):/usr/src/app --entrypoint='' \

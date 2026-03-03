@@ -110,7 +110,7 @@ impl AssetProvider<DefiniteDescriptorKey> for Assets {
 #[allow(clippy::type_complexity)]
 pub struct SatisfierImpl {
     pub lookup_ecdsa_sig: Option<Box<dyn Fn(&str) -> Option<bitcoin::ecdsa::Signature>>>,
-    pub lookup_tap_key_spend_sig: Option<Box<dyn Fn() -> Option<bitcoin::taproot::Signature>>>,
+    pub lookup_tap_key_spend_sig: Option<Box<dyn Fn(&str) -> Option<bitcoin::taproot::Signature>>>,
     pub lookup_tap_leaf_script_sig:
         Option<Box<dyn Fn(&str, &str) -> Option<bitcoin::taproot::Signature>>>,
 }
@@ -123,9 +123,12 @@ impl Satisfier<DefiniteDescriptorKey> for SatisfierImpl {
             None
         }
     }
-    fn lookup_tap_key_spend_sig(&self) -> Option<bitcoin::taproot::Signature> {
+    fn lookup_tap_key_spend_sig(
+        &self,
+        pk: &DefiniteDescriptorKey,
+    ) -> Option<bitcoin::taproot::Signature> {
         if let Some(f) = self.lookup_tap_key_spend_sig.as_ref() {
-            f()
+            f(&pk.to_string())
         } else {
             None
         }
@@ -183,9 +186,9 @@ pub unsafe extern "C" fn plan_satisfy(ptr: *const Plan, satisfier_str_ptr: StrPt
             None => None,
         },
         lookup_tap_key_spend_sig: match json_satisfier.lookup_tap_key_spend_sig {
-            Some(callback_id) => Some(Box::new(move || {
+            Some(callback_id) => Some(Box::new(move |pk| {
                 let sig: Option<String> =
-                    serde_json::from_str(&invoke_callback(callback_id, "")).unwrap();
+                    serde_json::from_str(&invoke_callback(callback_id, pk)).unwrap();
                 sig.map(|sig| {
                     bitcoin::taproot::Signature::from_slice(&Vec::from_hex(&sig).unwrap()).unwrap()
                 })
