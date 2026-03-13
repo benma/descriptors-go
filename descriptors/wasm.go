@@ -197,20 +197,36 @@ func (m *wasmModule) descriptorLift(descPtr uint64) (*SemanticPolicy, error) {
 	return jsonResult.Policy, nil
 }
 
-func (m *wasmModule) descriptorKeys(descPtr uint64) []string {
+func (m *wasmModule) descriptorKeys(descPtr uint64) []Key {
 	m.callMu.Lock()
 	defer m.callMu.Unlock()
 
-	fn := m.mod.ExportedFunction("descriptor_keys")
-	results, err := fn.Call(context.Background(), descPtr)
+	countFn := m.mod.ExportedFunction("descriptor_key_count")
+	keyAtFn := m.mod.ExportedFunction("descriptor_key_at")
+	isPrivateFn := m.mod.ExportedFunction("descriptor_key_is_private_at")
+
+	results, err := countFn.Call(context.Background(), descPtr)
 	if err != nil {
 		log.Panicln(err)
 	}
-	var jsonResult []string
-	if err := jsonUnmarshal(results[0], &jsonResult); err != nil {
-		log.Panicln(err)
+	count := results[0]
+
+	keys := make([]Key, count)
+	for i := uint64(0); i < count; i++ {
+		keyResult, err := keyAtFn.Call(context.Background(), descPtr, i)
+		if err != nil {
+			log.Panicln(err)
+		}
+		isPrivateResult, err := isPrivateFn.Call(context.Background(), descPtr, i)
+		if err != nil {
+			log.Panicln(err)
+		}
+		keys[i] = Key{
+			Key:       fromRustString(keyResult[0]),
+			IsPrivate: isPrivateResult[0] != 0,
+		}
 	}
-	return jsonResult
+	return keys
 }
 
 func (m *wasmModule) descriptorDescType(descPtr uint64) string {

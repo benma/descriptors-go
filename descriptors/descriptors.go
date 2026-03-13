@@ -64,9 +64,17 @@ func (d *Descriptor) Lift() (*SemanticPolicy, error) {
 	return d.mod.descriptorLift(d.ptr)
 }
 
+// Key represents a key in a descriptor, along with metadata about the key type.
+type Key struct {
+	// Key is the key string as it appeared in the descriptor.
+	Key string
+	// IsPrivate is true if the key is a private key (e.g. xprv).
+	IsPrivate bool
+}
+
 // Keys returns all keys present in the descriptor, in order as they appear in the descriptor
 // string.
-func (d *Descriptor) Keys() []string {
+func (d *Descriptor) Keys() []Key {
 	return d.mod.descriptorKeys(d.ptr)
 }
 

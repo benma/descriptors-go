@@ -5,8 +5,9 @@ extern crate alloc;
 extern crate core;
 
 use alloc::vec::Vec;
-use bitcoin::{absolute, relative};
+use bitcoin::{absolute, relative, secp256k1};
 use core::fmt;
+use miniscript::descriptor::DescriptorSecretKey;
 use miniscript::plan::AssetProvider;
 use miniscript::DefiniteDescriptorKey;
 use std::mem::MaybeUninit;
@@ -87,9 +88,19 @@ pub unsafe extern "C" fn deallocate(ptr: u32, size: u32) {
     ));
 }
 
+struct KeyInfo {
+    original_key: String,
+    is_private: bool,
+}
+
 pub struct Descriptor {
     descriptor: miniscript::Descriptor<miniscript::DescriptorPublicKey>,
     single_descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
+    /// If the descriptor was parsed from a string containing private keys, this stores
+    /// the original descriptor for display purposes.
+    original_descriptor: Option<miniscript::Descriptor<String>>,
+    /// Metadata about each key, in iter_pk() order.
+    key_info: Vec<KeyInfo>,
 }
 
 // Each function should return u64, serde_json::Value or String, as these can be passed over to
@@ -111,7 +122,10 @@ impl Descriptor {
     }
 
     fn to_str(&self) -> String {
-        self.descriptor.to_string()
+        match &self.original_descriptor {
+            Some(desc) => desc.to_string(),
+            None => self.descriptor.to_string(),
+        }
     }
 
     fn address_at(
@@ -164,14 +178,16 @@ impl Descriptor {
         }
     }
 
-    fn keys(&self) -> serde_json::Value {
-        let keys: Vec<String> = self
-            .descriptor
-            .iter_pk()
-            .map(|key| key.to_string())
-            .collect();
+    fn key_count(&self) -> u64 {
+        self.key_info.len() as _
+    }
 
-        serde_json::json!(keys)
+    fn key_at(&self, index: u32) -> String {
+        self.key_info[index as usize].original_key.clone()
+    }
+
+    fn key_is_private_at(&self, index: u32) -> u64 {
+        self.key_info[index as usize].is_private as u64
     }
 
     fn desc_type(&self) -> String {
@@ -222,13 +238,106 @@ impl Descriptor {
     }
 }
 
-fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
-    let descriptor =
-        miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(descriptor)
-            .map_err(|e| e.to_string())?;
+struct SecretKeyTranslator<'a, C: secp256k1::Signing> {
+    secp: &'a secp256k1::Secp256k1<C>,
+    key_info: &'a mut Vec<KeyInfo>,
+}
+
+impl<C: secp256k1::Signing> miniscript::Translator<String> for SecretKeyTranslator<'_, C> {
+    type TargetPk = miniscript::DescriptorPublicKey;
+    type Error = String;
+
+    fn pk(&mut self, pk: &String) -> Result<miniscript::DescriptorPublicKey, String> {
+        // Try as public key first.
+        if let Ok(dpk) = miniscript::DescriptorPublicKey::from_str(pk) {
+            self.key_info.push(KeyInfo {
+                original_key: pk.clone(),
+                is_private: false,
+            });
+            return Ok(dpk);
+        }
+        // Try as secret key.
+        let sk = DescriptorSecretKey::from_str(pk).map_err(|e| e.to_string())?;
+        let public = sk.to_public(self.secp).map_err(|e| e.to_string())?;
+        self.key_info.push(KeyInfo {
+            original_key: pk.clone(),
+            is_private: true,
+        });
+        Ok(public)
+    }
+
+    fn sha256(
+        &mut self,
+        sha256: &String,
+    ) -> Result<bitcoin::hashes::sha256::Hash, String> {
+        bitcoin::hashes::sha256::Hash::from_str(sha256).map_err(|e| e.to_string())
+    }
+
+    fn hash256(
+        &mut self,
+        hash256: &String,
+    ) -> Result<miniscript::hash256::Hash, String> {
+        miniscript::hash256::Hash::from_str(hash256).map_err(|e| e.to_string())
+    }
+
+    fn ripemd160(
+        &mut self,
+        ripemd160: &String,
+    ) -> Result<bitcoin::hashes::ripemd160::Hash, String> {
+        bitcoin::hashes::ripemd160::Hash::from_str(ripemd160).map_err(|e| e.to_string())
+    }
+
+    fn hash160(
+        &mut self,
+        hash160: &String,
+    ) -> Result<bitcoin::hashes::hash160::Hash, String> {
+        bitcoin::hashes::hash160::Hash::from_str(hash160).map_err(|e| e.to_string())
+    }
+}
+
+fn _descriptor_parse(descriptor_str: &str) -> Result<Box<Descriptor>, String> {
+    // First, try parsing as a public descriptor (the common case).
+    if let Ok(descriptor) =
+        miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(descriptor_str)
+    {
+        let key_info: Vec<KeyInfo> = descriptor
+            .iter_pk()
+            .map(|key| KeyInfo {
+                original_key: key.to_string(),
+                is_private: false,
+            })
+            .collect();
+        return Ok(Box::new(Descriptor {
+            single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
+            descriptor,
+            original_descriptor: None,
+            key_info,
+        }));
+    }
+
+    // Try parsing as a string descriptor (supports private keys).
+    let string_desc = miniscript::Descriptor::<String>::from_str(descriptor_str)
+        .map_err(|e| e.to_string())?;
+
+    let secp = secp256k1::Secp256k1::signing_only();
+    let mut key_info = Vec::new();
+
+    let descriptor = string_desc
+        .clone()
+        .translate_pk(&mut SecretKeyTranslator {
+            secp: &secp,
+            key_info: &mut key_info,
+        })
+        .map_err(|e| match e {
+            miniscript::TranslateErr::TranslatorErr(e) => e,
+            miniscript::TranslateErr::OuterError(e) => e.to_string(),
+        })?;
+
     Ok(Box::new(Descriptor {
         single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
         descriptor,
+        original_descriptor: Some(string_desc),
+        key_info,
     }))
 }
 
@@ -277,8 +386,18 @@ pub unsafe extern "C" fn descriptor_lift(ptr: *const Descriptor) -> StrPtr {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn descriptor_keys(ptr: *const Descriptor) -> StrPtr {
-    json_to_ptr((*ptr).keys())
+pub unsafe extern "C" fn descriptor_key_count(ptr: *const Descriptor) -> u64 {
+    (*ptr).key_count()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_key_at(ptr: *const Descriptor, index: u32) -> StrPtr {
+    string_to_ptr((*ptr).key_at(index))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_key_is_private_at(ptr: *const Descriptor, index: u32) -> u64 {
+    (*ptr).key_is_private_at(index)
 }
 
 #[no_mangle]
@@ -558,28 +677,42 @@ mod tests {
 
     #[test]
     fn test_keys() {
+        struct Expected {
+            key: &'static str,
+            is_private: bool,
+        }
         struct Test {
             desc: &'static str,
-            expected: &'static [&'static str],
+            expected: &'static [Expected],
         }
         let tests = &[
             Test {
                 desc: "tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr",
                 expected: &[
-                    "[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*",
-                    "[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*",
+                    Expected { key: "[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*", is_private: false },
+                    Expected { key: "[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*", is_private: false },
                 ],
             },
             Test {
                 desc: "wpkh(xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB)",
                 expected: &[
-                    "xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB",
+                    Expected { key: "xpub6BzikmgQmvoYG3ShFhXU1LFKaUeU832dHoYL6ka9JpCqKXr7PTHQHaoSMbGU36CZNcoryVPsFBjt9aYyCQHtYi6BQTo6VfRv9xVRuSNNteB", is_private: false },
+                ],
+            },
+            Test {
+                desc: "pkh(xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U/0)",
+                expected: &[
+                    Expected { key: "xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U/0", is_private: true },
                 ],
             },
         ];
         for test in tests {
             let desc = _descriptor_parse(test.desc).unwrap();
-            assert_eq!(desc.keys(), serde_json::json!(test.expected));
+            assert_eq!(desc.key_count(), test.expected.len() as u64);
+            for (i, expected) in test.expected.iter().enumerate() {
+                assert_eq!(desc.key_at(i as u32), expected.key);
+                assert_eq!(desc.key_is_private_at(i as u32), expected.is_private as u64);
+            }
         }
     }
 }
