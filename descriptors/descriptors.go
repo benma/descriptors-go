@@ -2,6 +2,7 @@ package descriptors
 
 import (
 	_ "embed"
+	"errors"
 	"runtime"
 )
 
@@ -23,6 +24,29 @@ func NewDescriptor(descriptor string) (*Descriptor, error) {
 	result := &Descriptor{
 		mod: mod,
 		ptr: uint64(descPtr),
+	}
+	runtime.AddCleanup(result, func(struct{}) { drop() }, struct{}{})
+
+	return result, nil
+}
+
+// ParseDescriptor parses a descriptor that may contain placeholder string keys
+// and translates them with mapKeys into descriptor public keys.
+func ParseDescriptor(descriptor string,
+	mapKeys func(key string) (string, error)) (*Descriptor, error) {
+
+	if mapKeys == nil {
+		return nil, errors.New("mapKeys callback must not be nil")
+	}
+
+	mod := getWasmMod()
+	descPtr, drop, err := mod.descriptorParseWithCallback(descriptor, mapKeys)
+	if err != nil {
+		return nil, err
+	}
+	result := &Descriptor{
+		mod: mod,
+		ptr: descPtr,
 	}
 	runtime.AddCleanup(result, func(struct{}) { drop() }, struct{}{})
 

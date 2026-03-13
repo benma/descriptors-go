@@ -5,10 +5,12 @@ extern crate alloc;
 extern crate core;
 
 use alloc::vec::Vec;
+use bitcoin::hashes::{hash160, ripemd160, sha256};
 use bitcoin::{absolute, relative};
 use core::fmt;
 use miniscript::plan::AssetProvider;
 use miniscript::DefiniteDescriptorKey;
+use miniscript::{hash256, DescriptorPublicKey, TranslateErr, Translator};
 use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
@@ -90,6 +92,83 @@ pub unsafe extern "C" fn deallocate(ptr: u32, size: u32) {
 pub struct Descriptor {
     descriptor: miniscript::Descriptor<miniscript::DescriptorPublicKey>,
     single_descriptors: Vec<miniscript::Descriptor<miniscript::DescriptorPublicKey>>,
+}
+
+fn wrap_descriptor(
+    descriptor: miniscript::Descriptor<miniscript::DescriptorPublicKey>,
+) -> Box<Descriptor> {
+    Box::new(Descriptor {
+        single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
+        descriptor,
+    })
+}
+
+fn parse_translated_fragment<T>(value: &str, label: &str) -> Result<T, String>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    value
+        .parse()
+        .map_err(|err| format!("invalid {} `{}`: {}", label, value, err))
+}
+
+fn parse_descriptor_with_map_keys<F>(
+    descriptor: &str,
+    map_key: F,
+) -> Result<Box<Descriptor>, String>
+where
+    F: FnMut(&str) -> Result<String, String>,
+{
+    struct MapKeysTranslator<F> {
+        map_key: F,
+    }
+
+    impl<F> Translator<String> for MapKeysTranslator<F>
+    where
+        F: FnMut(&str) -> Result<String, String>,
+    {
+        type TargetPk = DescriptorPublicKey;
+        type Error = String;
+
+        fn pk(&mut self, pk: &String) -> Result<DescriptorPublicKey, String> {
+            let mapped_key = (self.map_key)(pk)?;
+            parse_translated_fragment::<DescriptorPublicKey>(&mapped_key, "descriptor public key")
+                .map_err(|err| {
+                    format!(
+                        "mapped key `{}` is not a valid descriptor public key: {}",
+                        mapped_key, err
+                    )
+                })
+        }
+
+        fn sha256(&mut self, value: &String) -> Result<sha256::Hash, String> {
+            parse_translated_fragment(value, "sha256 hash")
+        }
+
+        fn hash256(&mut self, value: &String) -> Result<hash256::Hash, String> {
+            parse_translated_fragment(value, "hash256 hash")
+        }
+
+        fn ripemd160(&mut self, value: &String) -> Result<ripemd160::Hash, String> {
+            parse_translated_fragment(value, "ripemd160 hash")
+        }
+
+        fn hash160(&mut self, value: &String) -> Result<hash160::Hash, String> {
+            parse_translated_fragment(value, "hash160 hash")
+        }
+    }
+
+    let descriptor =
+        miniscript::Descriptor::<String>::from_str(descriptor).map_err(|err| err.to_string())?;
+    let descriptor = descriptor
+        .translate_pk(&mut MapKeysTranslator { map_key })
+        .map_err(|err| match err {
+            TranslateErr::TranslatorErr(err) => err,
+            TranslateErr::OuterError(err) => err.to_string(),
+        })?;
+
+    Ok(wrap_descriptor(descriptor))
 }
 
 // Each function should return u64, serde_json::Value or String, as these can be passed over to
@@ -226,10 +305,7 @@ fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
     let descriptor =
         miniscript::Descriptor::<miniscript::DescriptorPublicKey>::from_str(descriptor)
             .map_err(|e| e.to_string())?;
-    Ok(Box::new(Descriptor {
-        single_descriptors: descriptor.clone().into_single_descriptors().unwrap(),
-        descriptor,
-    }))
+    Ok(wrap_descriptor(descriptor))
 }
 
 #[no_mangle]
@@ -237,6 +313,43 @@ pub unsafe extern "C" fn descriptor_parse(ptr: StrPtr) -> StrPtr {
     let descriptor_string = ptr_to_string(ptr);
 
     match _descriptor_parse(&descriptor_string) {
+        Ok(descriptor) => json_to_ptr(serde_json::json!({
+            "ptr": Box::into_raw(descriptor) as u64,
+        })),
+        Err(err) => json_to_ptr(serde_json::json!({
+            "error": err,
+        })),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_parse_with_callback(
+    ptr: StrPtr,
+    callback_id: CallbackId,
+) -> StrPtr {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct MapKeyResponse {
+        mapped_key: Option<String>,
+        error: Option<String>,
+    }
+
+    let descriptor_string = ptr_to_string(ptr);
+
+    let result = parse_descriptor_with_map_keys(&descriptor_string, |key| {
+        let response: MapKeyResponse = serde_json::from_str(&invoke_callback(callback_id, key))
+            .map_err(|err| format!("invalid mapKeys response: {}", err))?;
+
+        if let Some(err) = response.error {
+            return Err(err);
+        }
+
+        response
+            .mapped_key
+            .ok_or_else(|| "mapKeys callback returned no mappedKey".to_string())
+    });
+
+    match result {
         Ok(descriptor) => json_to_ptr(serde_json::json!({
             "ptr": Box::into_raw(descriptor) as u64,
         })),
@@ -581,5 +694,61 @@ mod tests {
             let desc = _descriptor_parse(test.desc).unwrap();
             assert_eq!(desc.keys(), serde_json::json!(test.expected));
         }
+    }
+
+    #[test]
+    fn test_parse_descriptor_with_map_keys() {
+        let desc = parse_descriptor_with_map_keys("wsh(multi(2,alice,bob))", |key| match key {
+            "alice" => Ok(
+                "0270cf3c71f65a3d93d285d9149fddeeb638f87a2d4d8cf16c525f71c417439777".to_string(),
+            ),
+            "bob" => Ok(
+                "02f43b15c50a436f5335dbea8a64dd3b4e63e34c3b50c42598acb5f4f336b5d2fb".to_string(),
+            ),
+            other => Err(format!("unexpected key {}", other)),
+        })
+        .unwrap();
+
+        assert_eq!(
+            desc.to_str(),
+            _descriptor_parse(
+                "wsh(multi(2,0270cf3c71f65a3d93d285d9149fddeeb638f87a2d4d8cf16c525f71c417439777,02f43b15c50a436f5335dbea8a64dd3b4e63e34c3b50c42598acb5f4f336b5d2fb))"
+            )
+            .unwrap()
+            .to_str()
+        );
+        assert_eq!(
+            desc.keys(),
+            serde_json::json!([
+                "0270cf3c71f65a3d93d285d9149fddeeb638f87a2d4d8cf16c525f71c417439777",
+                "02f43b15c50a436f5335dbea8a64dd3b4e63e34c3b50c42598acb5f4f336b5d2fb"
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_descriptor_with_map_keys_callback_error() {
+        let err = parse_descriptor_with_map_keys("wpkh(alice)", |_| {
+            Err("missing mapping for alice".to_string())
+        })
+        .err()
+        .unwrap();
+
+        assert_eq!(err, "missing mapping for alice");
+    }
+
+    #[test]
+    fn test_parse_descriptor_with_map_keys_invalid_mapped_key() {
+        let err = parse_descriptor_with_map_keys("wpkh(alice)", |_| {
+            Ok("not-a-descriptor-key".to_string())
+        })
+        .err()
+        .unwrap();
+
+        assert!(
+            err.contains("mapped key `not-a-descriptor-key` is not a valid descriptor public key"),
+            "{}",
+            err
+        );
     }
 }

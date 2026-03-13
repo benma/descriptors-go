@@ -86,6 +86,52 @@ func (m *wasmModule) descriptorParse(
 	return descPtr, func() { m.descriptorDrop(descPtr) }, nil
 }
 
+func (m *wasmModule) descriptorParseWithCallback(
+	descriptor string,
+	mapKeys func(string) (string, error),
+) (uint64, func(), error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
+	strPtr, strDrop := rustString(descriptor)
+	defer strDrop()
+
+	callbackID, cleanup := registerCallback(func(key string) string {
+		var jsonResult struct {
+			MappedKey *string `json:"mappedKey"`
+			Error     string  `json:"error,omitempty"`
+		}
+
+		mappedKey, err := mapKeys(key)
+		if err != nil {
+			jsonResult.Error = err.Error()
+		} else {
+			jsonResult.MappedKey = &mappedKey
+		}
+
+		return string(mustJsonMarshal(jsonResult))
+	})
+	defer cleanup()
+
+	parseFn := m.mod.ExportedFunction("descriptor_parse_with_callback")
+	result, err := parseFn.Call(context.Background(), strPtr, uint64(callbackID))
+	if err != nil {
+		return 0, nil, err
+	}
+	var jsonResult struct {
+		Ptr   uint64
+		Error string
+	}
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return 0, nil, err
+	}
+	if jsonResult.Error != "" {
+		return 0, nil, errors.New(jsonResult.Error)
+	}
+	descPtr := jsonResult.Ptr
+	return descPtr, func() { m.descriptorDrop(descPtr) }, nil
+}
+
 func (m *wasmModule) descriptorMultipathLen(descPtr uint64) uint64 {
 	m.callMu.Lock()
 	defer m.callMu.Unlock()

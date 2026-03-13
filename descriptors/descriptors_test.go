@@ -319,6 +319,65 @@ func TestMaxWeightToSatisfy(t *testing.T) {
 
 }
 
+func TestParseDescriptor(t *testing.T) {
+	const (
+		descriptor = "wsh(multi(2,alice,bob))"
+		aliceKey   = "0270cf3c71f65a3d93d285d9149fddeeb638f87a2d4d8cf16c525f71c417439777"
+		bobKey     = "02f43b15c50a436f5335dbea8a64dd3b4e63e34c3b50c42598acb5f4f336b5d2fb"
+	)
+
+	t.Run("success", func(t *testing.T) {
+		var requestedKeys []string
+		parsed, err := ParseDescriptor(descriptor,
+			func(key string) (string, error) {
+				requestedKeys = append(requestedKeys, key)
+
+				switch key {
+				case "alice":
+					return aliceKey, nil
+				case "bob":
+					return bobKey, nil
+				default:
+					return "", fmt.Errorf("unexpected key %q", key)
+				}
+			},
+		)
+		require.NoError(t, err)
+		require.Equal(t, []string{"alice", "bob"}, requestedKeys)
+
+		expected, err := NewDescriptor(fmt.Sprintf("wsh(multi(2,%s,%s))",
+			aliceKey, bobKey))
+		require.NoError(t, err)
+		require.Equal(t, expected.String(), parsed.String())
+		require.Equal(t, expected.Keys(), parsed.Keys())
+		require.Equal(t, expected.DescType(), parsed.DescType())
+	})
+
+	t.Run("callback error", func(t *testing.T) {
+		_, err := ParseDescriptor("wpkh(alice)",
+			func(key string) (string, error) {
+				return "", fmt.Errorf("missing mapping for %s", key)
+			},
+		)
+		require.EqualError(t, err, "missing mapping for alice")
+	})
+
+	t.Run("invalid mapped key", func(t *testing.T) {
+		_, err := ParseDescriptor("wpkh(alice)",
+			func(string) (string, error) {
+				return "not-a-descriptor-key", nil
+			},
+		)
+		require.ErrorContains(t, err,
+			"mapped key `not-a-descriptor-key` is not a valid descriptor public key")
+	})
+
+	t.Run("nil callback", func(t *testing.T) {
+		_, err := ParseDescriptor("wpkh(alice)", nil)
+		require.EqualError(t, err, "mapKeys callback must not be nil")
+	})
+}
+
 func TestLift(t *testing.T) {
 	descriptor, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr")
 	require.NoError(t, err)
