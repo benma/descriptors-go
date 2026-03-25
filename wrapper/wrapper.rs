@@ -1,21 +1,20 @@
+extern crate alloc;
+extern crate core;
 mod lift;
 mod plan;
 
-extern crate alloc;
-extern crate core;
-
 use alloc::vec::Vec;
+use bitcoin::hex::{Case, DisplayHex};
 use bitcoin::{absolute, relative};
 use core::fmt;
+use miniscript::descriptor::DescriptorType;
+use miniscript::miniscript::types;
 use miniscript::plan::AssetProvider;
+use miniscript::policy::Liftable;
 use miniscript::DefiniteDescriptorKey;
 use std::mem::MaybeUninit;
 use std::slice;
 use std::str::FromStr;
-
-use miniscript::descriptor::DescriptorType;
-use miniscript::miniscript::types;
-use miniscript::policy::Liftable;
 
 type StrPtr = u64;
 type CallbackId = u32;
@@ -142,6 +141,30 @@ impl Descriptor {
         match result() {
             Ok(address) => serde_json::json!({
                 "address": address,
+            }),
+            Err(err) => serde_json::json!({
+                "error": err,
+            }),
+        }
+    }
+
+    fn script_code_at(&self, multipath_index: u32, derivation_index: u32) -> serde_json::Value {
+        let result = || -> Result<String, String> {
+            let descriptor = self
+                .single_descriptors
+                .get(multipath_index as usize)
+                .ok_or("multipath index out of bounds".to_string())?;
+
+            let script_code = descriptor
+                .at_derivation_index(derivation_index)
+                .map_err(|e| e.to_string())?
+                .script_code()
+                .map_err(|e| e.to_string())?;
+            Ok(script_code.into_bytes().to_hex_string(Case::Lower))
+        };
+        match result() {
+            Ok(script_code) => serde_json::json!({
+                "script": script_code,
             }),
             Err(err) => serde_json::json!({
                 "error": err,
@@ -302,6 +325,15 @@ pub unsafe extern "C" fn descriptor_address_at(
     derivation_index: u32,
 ) -> StrPtr {
     json_to_ptr((*ptr).address_at(network, multipath_index, derivation_index))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn descriptor_script_code_at(
+    ptr: *const Descriptor,
+    multipath_index: u32,
+    derivation_index: u32,
+) -> StrPtr {
+    json_to_ptr((*ptr).script_code_at(multipath_index, derivation_index))
 }
 
 struct TestType(types::Type);
@@ -471,7 +503,6 @@ pub unsafe extern "C" fn descriptor_plan_at(
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
@@ -518,6 +549,20 @@ mod tests {
             })
         );
         assert_eq!(desc.desc_type(), "Tr".to_string());
+    }
+
+    #[test]
+    fn test_script_code() {
+        let desc_str = "wsh(sortedmulti(2,[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*))#jx2cv4q8";
+        let desc = _descriptor_parse(desc_str).unwrap();
+
+        assert_eq!(desc.multipath_len(), 2);
+        assert_eq!(
+            desc.script_code_at(0, 0),
+            serde_json::json!({
+                "script": "5221020b44e43e2f276697d23c2248f80bb09e84f702ddae399d194f5132f472bf8713210326547ceb5352bd238ca7e1da004e9d6625baf3324feda4ead69436042a53510452ae",
+            })
+        );
     }
 
     #[test]
