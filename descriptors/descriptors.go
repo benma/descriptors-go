@@ -57,6 +57,16 @@ func (d *Descriptor) AddressAt(network Network, multipathIndex uint32,
 	)
 }
 
+// ScriptCodeAt derives and returns the script code (raw compiled bitcoin
+// script) at the given multipath and derivation index.
+func (d *Descriptor) ScriptCodeAt(multipathIndex uint32,
+	derivationIndex uint32) ([]byte, error) {
+
+	return d.mod.descriptorScriptCodeAt(
+		d.ptr, multipathIndex, derivationIndex,
+	)
+}
+
 // Lift converts this descriptor into an abstract policy.
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.lift.

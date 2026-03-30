@@ -175,6 +175,41 @@ func (m *wasmModule) descriptorAddressAt(
 	return jsonResult.Address, nil
 }
 
+func (m *wasmModule) descriptorScriptCodeAt(
+	descPtr uint64,
+	multipathIndex uint32,
+	derivationIndex uint32) ([]byte, error) {
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
+	fn := m.mod.ExportedFunction("descriptor_script_code_at")
+	result, err := fn.Call(
+		context.Background(),
+		descPtr,
+		uint64(multipathIndex),
+		uint64(derivationIndex),
+	)
+	if err != nil {
+		return nil, err
+	}
+	var jsonResult struct {
+		Script string
+		Error  string
+	}
+	if err := jsonUnmarshal(result[0], &jsonResult); err != nil {
+		return nil, err
+	}
+	if jsonResult.Error != "" {
+		return nil, errors.New(jsonResult.Error)
+	}
+
+	scriptBytes, err := hex.DecodeString(jsonResult.Script)
+	if err != nil {
+		return nil, err
+	}
+	return scriptBytes, nil
+}
+
 func (m *wasmModule) descriptorLift(descPtr uint64) (*SemanticPolicy, error) {
 	m.callMu.Lock()
 	defer m.callMu.Unlock()

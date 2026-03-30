@@ -436,6 +436,16 @@ func TestDescType(t *testing.T) {
 	}
 }
 
+func TestScriptCodeAt(t *testing.T) {
+	descriptor, err := NewDescriptor("wsh(sortedmulti(2,[e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,[3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*))#jx2cv4q8")
+	require.NoError(t, err)
+
+	expectedScript := "5221020b44e43e2f276697d23c2248f80bb09e84f702ddae399d194f5132f472bf8713210326547ceb5352bd238ca7e1da004e9d6625baf3324feda4ead69436042a53510452ae"
+	scriptBytes, err := descriptor.ScriptCodeAt(0, 0)
+	require.NoError(t, err)
+	require.Equal(t, expectedScript, hex.EncodeToString(scriptBytes))
+}
+
 func TestPlanAt(t *testing.T) {
 	descriptorTr, err := NewDescriptor("tr([e81a5744/48'/0'/0'/2']xpub6Duv8Gj9gZeA3sUo5nUMPEv6FZ81GHn3feyaUej5KqcjPKsYLww4xBX4MmYZUPX5NqzaVJWYdYZwGLECtgQruG4FkZMh566RkfUT2pbzsEg/<0;1>/*,and_v(v:pk([3c157b79/48'/0'/0'/2']xpub6DdSN9RNZi3eDjhZWA8PJ5mSuWgfmPdBduXWzSP91Y3GxKWNwkjyc5mF9FcpTFymUh9C4Bar45b6rWv6Y5kSbi9yJDjuJUDzQSWUh3ijzXP/<0;1>/*),older(65535)))#lg9nqqhr")
 	require.NoError(t, err)
