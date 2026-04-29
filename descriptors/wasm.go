@@ -34,6 +34,11 @@ var wasmBytes []byte
 
 var initOnce sync.Once
 
+// WazeroRuntimeConfig is the runtime configuration used when the WASM parser
+// is initialized for the very first time. Must be overwritten before the first
+// public function of this module is called.
+var WazeroRuntimeConfig = wazero.NewRuntimeConfig()
+
 type wasmModule struct {
 	mod api.Module
 	// `Call()` is not goroutine-safe, see
@@ -568,7 +573,9 @@ func logString(_ context.Context, m api.Module, offset, byteCount uint32) {
 func getWasmMod() *wasmModule {
 	initOnce.Do(func() {
 		ctx := context.Background()
-		wasmRuntime := wazero.NewRuntime(ctx)
+		wasmRuntime := wazero.NewRuntimeWithConfig(
+			ctx, WazeroRuntimeConfig,
+		)
 		wasi_snapshot_preview1.MustInstantiate(ctx, wasmRuntime)
 		_, err := wasmRuntime.NewHostModuleBuilder("env").
 			NewFunctionBuilder().
