@@ -128,7 +128,9 @@ func (m *wasmModule) descriptorDrop(descPtr uint64) {
 	descriptorDropFn := m.mod.ExportedFunction("descriptor_drop")
 	_, err := descriptorDropFn.Call(context.Background(), descPtr)
 	if err != nil {
-		log.Panicln(err)
+		// Runs from a runtime.AddCleanup hook, on a goroutine with no
+		// caller frame to recover in.
+		log.Println("descriptors: descriptor_drop:", err)
 	}
 }
 
@@ -139,7 +141,9 @@ func (m *wasmModule) planDrop(planPtr uint64) {
 	fn := m.mod.ExportedFunction("plan_drop")
 	_, err := fn.Call(context.Background(), planPtr)
 	if err != nil {
-		log.Panicln(err)
+		// Runs from a runtime.AddCleanup hook, on a goroutine with no
+		// caller frame to recover in.
+		log.Println("descriptors: plan_drop:", err)
 	}
 }
 
