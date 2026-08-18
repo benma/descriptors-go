@@ -19,14 +19,24 @@ use std::str::FromStr;
 type StrPtr = u64;
 type CallbackId = u32;
 
-/// Returns a string from WebAssembly compatible numeric types representing
-/// its pointer and length.
-unsafe fn ptr_to_string(ptr: StrPtr) -> String {
+/// Copies bytes from WebAssembly compatible numeric types representing their
+/// pointer and length.
+unsafe fn ptr_to_bytes(ptr: StrPtr) -> Vec<u8> {
     let len: u32 = ptr as u32;
     let ptr: u32 = (ptr >> 32) as u32;
     let slice = slice::from_raw_parts(ptr as *const u8, len as usize);
-    let utf8 = std::str::from_utf8_unchecked(slice);
-    String::from(utf8)
+    Vec::from(slice)
+}
+
+/// Returns a string for data produced by internal Go callbacks, which always
+/// return valid UTF-8.
+unsafe fn ptr_to_string(ptr: StrPtr) -> String {
+    String::from_utf8_unchecked(ptr_to_bytes(ptr))
+}
+
+/// Returns a string after validating bytes supplied through a public Go API.
+unsafe fn ptr_to_utf8_string(ptr: StrPtr) -> Result<String, String> {
+    String::from_utf8(ptr_to_bytes(ptr)).map_err(|_| "input is not valid UTF-8".to_string())
 }
 
 fn string_to_ptr(s: String) -> StrPtr {
@@ -257,9 +267,11 @@ fn _descriptor_parse(descriptor: &str) -> Result<Box<Descriptor>, String> {
 
 #[no_mangle]
 pub unsafe extern "C" fn descriptor_parse(ptr: StrPtr) -> StrPtr {
-    let descriptor_string = ptr_to_string(ptr);
-
-    match _descriptor_parse(&descriptor_string) {
+    let result = || -> Result<Box<Descriptor>, String> {
+        let descriptor_string = ptr_to_utf8_string(ptr)?;
+        _descriptor_parse(&descriptor_string)
+    };
+    match result() {
         Ok(descriptor) => json_to_ptr(serde_json::json!({
             "ptr": Box::into_raw(descriptor) as u64,
         })),
@@ -388,7 +400,7 @@ pub struct MiniscriptProperties {
 #[no_mangle]
 pub unsafe extern "C" fn miniscript_parse(ptr: StrPtr) -> StrPtr {
     let result = || -> Result<MiniscriptProperties, String> {
-        let miniscript_string = ptr_to_string(ptr);
+        let miniscript_string = ptr_to_utf8_string(ptr)?;
         let ms = miniscript::Miniscript::<String, miniscript::Segwitv0>::from_str_insane(
             &miniscript_string,
         )
@@ -423,7 +435,7 @@ pub unsafe extern "C" fn miniscript_parse(ptr: StrPtr) -> StrPtr {
 #[no_mangle]
 pub unsafe extern "C" fn miniscript_compile(ptr: StrPtr) -> StrPtr {
     let result = || -> Result<String, String> {
-        let miniscript_string = ptr_to_string(ptr);
+        let miniscript_string = ptr_to_utf8_string(ptr)?;
         let ms =
             miniscript::Miniscript::<bitcoin::PublicKey, miniscript::Segwitv0>::from_str_insane(
                 &miniscript_string,
