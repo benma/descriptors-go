@@ -1,5 +1,7 @@
 package descriptors
 
+import "runtime"
+
 // Plan encapsulates a spending path on a descriptor.
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html.
@@ -31,7 +33,9 @@ type Assets struct {
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html#method.satisfaction_weight.
 func (p *Plan) SatisfactionWeight() uint64 {
-	return p.mod.planSatisfactionWeight(p.ptr)
+	result := p.mod.planSatisfactionWeight(p.ptr)
+	runtime.KeepAlive(p)
+	return result
 }
 
 // The size in bytes of the script sig that satisfies this plan, including the size of the var-int
@@ -39,14 +43,18 @@ func (p *Plan) SatisfactionWeight() uint64 {
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html#method.scriptsig_size
 func (p *Plan) ScriptSigSize() uint64 {
-	return p.mod.planScriptSigSize(p.ptr)
+	result := p.mod.planScriptSigSize(p.ptr)
+	runtime.KeepAlive(p)
+	return result
 }
 
 // The size in bytes of the witness that satisfies this plan
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html#method.witness_size
 func (p *Plan) WitnessSize() uint64 {
-	return p.mod.planWitnessSize(p.ptr)
+	result := p.mod.planWitnessSize(p.ptr)
+	runtime.KeepAlive(p)
+	return result
 }
 
 type Satisfier struct {
@@ -69,7 +77,9 @@ type SatisfyResult struct {
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/plan/struct.Plan.html#method.satisfy.
 func (p *Plan) Satisfy(satisfier *Satisfier) (*SatisfyResult, error) {
-	return p.mod.planSatisfy(
+	result, err := p.mod.planSatisfy(
 		p.ptr, satisfier,
 	)
+	runtime.KeepAlive(p)
+	return result, err
 }

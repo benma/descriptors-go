@@ -32,19 +32,25 @@ func NewDescriptor(descriptor string) (*Descriptor, error) {
 // String returns the complete string representation of the descriptor,
 // including the checksum.
 func (d *Descriptor) String() string {
-	return d.mod.descriptorString(d.ptr)
+	result := d.mod.descriptorString(d.ptr)
+	runtime.KeepAlive(d)
+	return result
 }
 
 // MultipathLen returns the number of multipath elements in the descriptor.
 func (d *Descriptor) MultipathLen() int {
-	return int(d.mod.descriptorMultipathLen(d.ptr))
+	result := int(d.mod.descriptorMultipathLen(d.ptr))
+	runtime.KeepAlive(d)
+	return result
 }
 
 // MaxWeightToSatisfy returns the largest possible weight of the input witness needed to satisfy this
 // descriptor.
 // See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.max_weight_to_satisfy.
 func (d *Descriptor) MaxWeightToSatisfy() (uint64, error) {
-	return d.mod.descriptorMaxWeightToSatisfy(d.ptr)
+	result, err := d.mod.descriptorMaxWeightToSatisfy(d.ptr)
+	runtime.KeepAlive(d)
+	return result, err
 }
 
 // AddressAt derives and returns the address at the given multipath and
@@ -52,9 +58,11 @@ func (d *Descriptor) MaxWeightToSatisfy() (uint64, error) {
 func (d *Descriptor) AddressAt(network Network, multipathIndex uint32,
 	derivationIndex uint32) (string, error) {
 
-	return d.mod.descriptorAddressAt(
+	result, err := d.mod.descriptorAddressAt(
 		d.ptr, network, multipathIndex, derivationIndex,
 	)
+	runtime.KeepAlive(d)
+	return result, err
 }
 
 // ScriptCodeAt derives and returns the script code (raw compiled bitcoin
@@ -62,22 +70,28 @@ func (d *Descriptor) AddressAt(network Network, multipathIndex uint32,
 func (d *Descriptor) ScriptCodeAt(multipathIndex uint32,
 	derivationIndex uint32) ([]byte, error) {
 
-	return d.mod.descriptorScriptCodeAt(
+	result, err := d.mod.descriptorScriptCodeAt(
 		d.ptr, multipathIndex, derivationIndex,
 	)
+	runtime.KeepAlive(d)
+	return result, err
 }
 
 // Lift converts this descriptor into an abstract policy.
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.lift.
 func (d *Descriptor) Lift() (*SemanticPolicy, error) {
-	return d.mod.descriptorLift(d.ptr)
+	result, err := d.mod.descriptorLift(d.ptr)
+	runtime.KeepAlive(d)
+	return result, err
 }
 
 // Keys returns all keys present in the descriptor, in order as they appear in the descriptor
 // string.
 func (d *Descriptor) Keys() []string {
-	return d.mod.descriptorKeys(d.ptr)
+	result := d.mod.descriptorKeys(d.ptr)
+	runtime.KeepAlive(d)
+	return result
 }
 
 // DecsType is the descriptor type.
@@ -114,7 +128,9 @@ const (
 //
 // See https://docs.rs/miniscript/12.3.2/miniscript/descriptor/enum.Descriptor.html#method.desc_type
 func (d *Descriptor) DescType() DescType {
-	return DescType(d.mod.descriptorDescType(d.ptr))
+	result := DescType(d.mod.descriptorDescType(d.ptr))
+	runtime.KeepAlive(d)
+	return result
 }
 
 // PlanAt returns a plan at the given multipath and derivation index if the provided assets are
@@ -127,6 +143,7 @@ func (d *Descriptor) PlanAt(multipathIndex uint32,
 	planPtr, drop, err := d.mod.descriptorPlanAt(
 		d.ptr, multipathIndex, derivationIndex, assets,
 	)
+	runtime.KeepAlive(d)
 	if err != nil {
 		return nil, err
 	}
